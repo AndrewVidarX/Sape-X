@@ -1,0 +1,697 @@
+local Profiles = {}
+
+Profiles._replicatedStorage = game:GetService("ReplicatedStorage")
+Profiles._serverStorage = game:GetService("ServerStorage")
+Profiles._players = game:GetService("Players")
+
+Profiles._engine = require(Profiles._replicatedStorage.engine)
+Profiles._references = Profiles._engine.References
+Profiles._services = Profiles._engine.Services
+
+Profiles._profiles = require(script.profiles)
+Profiles._service = require(script.service)
+Profiles._testers = Profiles._engine:load("Whitelist", "utils")
+
+Profiles._maids = {}
+Profiles._maid = Profiles._engine:load("Maid")
+
+Profiles._saveAttempts = {}
+
+Profiles._whitelist = Profiles._engine:load("GamePassWhitelist", "utils")
+
+----------------------------<< Profile Template Setup >>----------------------------
+
+function Profiles._folderToDictionary(_folder)
+	local _dictionary = {}
+
+	for _index, _object in next, _folder:GetChildren() do
+		if _object:IsA("Folder") then
+			_dictionary[_object.Name] = {}
+
+			for _index, _value in next, _object:GetChildren() do
+				if _value:IsA("Folder") then
+					_dictionary[_object.Name][_value.Name] = {}
+
+					for _index, _data in next, _value:GetChildren() do
+						if (_data:IsA("ValueBase") or _data.ClassName:match("Value")) then
+							if _data:IsA("Color3Value") then
+								_dictionary[_object.Name][_value.Name][_data.Name] = string.format("%s,%s,%s", tostring(_data.Value.R), tostring(_data.Value.G), tostring(_data.Value.B))
+							else
+								_dictionary[_object.Name][_value.Name][_data.Name] = tostring(_data.Value)
+							end
+						end
+					end
+
+				elseif (_value:IsA("ValueBase") or _value.ClassName:match("Value")) then
+					if _value:IsA("Color3Value") then
+						_dictionary[_object.Name][_value.Name] = string.format("%s,%s,%s", tostring(_value.Value.R), tostring(_value.Value.G), tostring(_value.Value.B))
+					else
+						_dictionary[_object.Name][_value.Name] = tostring(_value.Value)
+					end
+				end
+			end
+		elseif (_object:IsA("ValueBase") or _object.ClassName:match("Value")) then
+			if _object:IsA("Color3Value") then
+				_dictionary[_object.Name] = string.format("%s,%s,%s", tostring(_object.Value.R), tostring(_object.Value.G), tostring(_object.Value.B))
+			else
+				_dictionary[_object.Name] = tostring(_object.Value)
+			end
+		end
+	end
+
+	return _dictionary
+end
+
+Profiles._sample = script:WaitForChild("sample")
+Profiles._template = Profiles._folderToDictionary(Profiles._sample)
+
+Profiles._storage = Profiles._service.GetProfileStore(
+	"RF24StatsUserData",
+	Profiles._template
+)
+
+----------------------------<< Functions >>----------------------------
+local function onLoadFailure(_player, _profile, _data)
+	if _profile then
+		_profile:Release()
+	end
+
+	if Profiles._profiles[_player] then
+		Profiles._profiles[_player] = nil
+	end
+
+	if _data then
+		_data:Destroy()
+	end
+
+	if _player and _player.Parent then
+		_player:Kick("An unexpected error occured while loading") 
+	end
+end
+
+function Profiles._load(_player, _data)
+	if Profiles._profiles[_player] then
+		local _dictionary = Profiles._profiles[_player]
+
+		local function load(_folder, _array)
+			if _folder then
+				for _index, _table in next, _array do
+					if type(_table) == "table" then
+						load(_folder:FindFirstChild(_index), _table)
+					else
+						if _folder:FindFirstChild(_index) then
+							local _value = _folder[_index]
+
+							if _value.Name == _index and (_value:IsA("ValueBase") or _value.ClassName:match("Value")) then
+								_value:SetAttribute("key", Profiles._references.Main.config.Key:GetAttribute("realKey"))
+								if _value:IsA("Color3Value") then
+									_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+								elseif _value:IsA("BoolValue") then
+									if _table == "true" then
+										_value.Value = true
+									else
+										_value.Value = false
+									end
+								else
+									_value.Value = _table
+								end
+							end
+						else
+							local valueType = "StringValue"
+
+							if _table == "true" or _table == "false" then
+								valueType = "BoolValue"
+							elseif string.find(_table, ",") then
+								valueType = "Color3Value"
+							end
+
+							local _value = Instance.new(valueType)
+
+							if _index == "Tshbalala" then
+								_value.Name = "Tshabalala"
+							else
+								_value.Name = _index
+							end
+
+							_value:SetAttribute("key", Profiles._references.Main.config.Key:GetAttribute("realKey"))
+
+							if _table == "true" then
+								_value.Value = true
+							elseif _table == "false" then
+								_value.Value = false
+							elseif string.find(_table, ",") then
+								_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+							else
+								_value.Value = _table
+							end
+
+							_value.Parent = _folder
+						end
+					end
+				end
+			end
+		end
+		load(_data, _dictionary.Data)
+
+		for _, _reference in next, {"Accessories", "Boots", "Gloves", "Ball Holds", "Celebrations"} do
+			local _container
+
+			if _reference == "Celebrations" then
+				_container = Profiles._references.Main.animations:WaitForChild(_reference, 100)
+			elseif _reference == "Ball Holds" then
+				_container = Profiles._references.Main.animations:WaitForChild("Ball", 100)
+			else
+				_container = Profiles._references.Main:WaitForChild(string.lower(_reference), 100)
+			end
+
+			for _index, _item in next, _container:GetChildren() do
+				if _data.inventory:FindFirstChild(_reference) and game.PlaceId ~= 15690159367 and (table.find(Profiles._whitelist, _player.UserId) or (_item:FindFirstChild("Exclusive") and _item.Exclusive.Value == _player.UserId)) and _item and not _data.inventory[_reference]:FindFirstChild(_item.Name) then
+					local Value = Instance.new("BoolValue")
+					Value.Name = _item.Name
+					Value.Value = true
+					Value.Parent = _data.inventory[_reference]
+					Value:SetAttribute("key", Profiles._references.Main.config.Key:GetAttribute("realKey"))
+				end
+			end	
+		end
+
+		if table.find(Profiles._testers, _player.UserId) and not _data.inventory.Boots:FindFirstChild("RF Tester") then
+			local Value = Instance.new("BoolValue")
+			Value.Name = "RF Tester"
+			Value.Value = true 
+			Value.Parent = _data.inventory.Boots
+			Value:SetAttribute("key", Profiles._references.Main.config.Key:GetAttribute("realKey"))
+		end
+
+		if game.PlaceId == 15690159367 then
+			_data.stats.Cash.Value = 10000
+		end
+
+		_data:SetAttribute("Loaded", true)
+		print(string.format("[Profiles] Data successfully loaded for %s (%s)", _player.Name, tostring(_player.UserId)))
+	else
+		_data:SetAttribute("Loaded", false)
+		print(string.format("[Profiles] Data failed to load for %s", _player.Name))
+		onLoadFailure(_player, Profiles._profiles[_player], _data)
+	end
+end
+
+function Profiles._playerAdded(_player : Player)
+	--local initTime = tick()
+	local _data = Profiles._sample:Clone()
+	local _profile = Profiles._storage:LoadProfileAsync("user_" .. _player.UserId)
+	--local finishTime = tick() - initTime
+	--print("Profile loaded in", finishTime, " for", _player.Name, tostring(_player.UserId))
+	local _maid = Profiles._maid.new()
+
+	Profiles._maids[_player.Name] = _maid
+	_data.Parent = Profiles._replicatedStorage.network.Profiles
+	_data.Name = tostring(_player.UserId)
+
+	for _,v in next, _data:GetDescendants() do
+		if (v:IsA("StringValue") or v:IsA("IntValue") or v:IsA("BoolValue") or v:IsA("Color3Value")) and v.Name ~= "Min" and v.Name ~= "Max" and v.Name ~= "Load" then
+			local Default = Instance.new(v.ClassName, v)
+			Default.Name = "DefaultValue"
+			Default.Value = v.Value
+		end
+	end
+
+	if _profile then
+		_profile:AddUserId(_player.UserId)
+		_profile:Reconcile()
+
+		_profile:ListenToRelease(function()
+			Profiles._profiles[_player] = nil
+			if _player and _player.Parent then
+				_player:Kick() 
+			end
+		end)
+
+		if _player:IsDescendantOf(Profiles._players) == true then
+			Profiles._profiles[_player] = _profile
+			Profiles._load(_player, _data)
+		else
+			onLoadFailure(_player, _profile, _data)
+		end
+	else
+		_player:Kick("An unexpected error occured while loading") 
+	end
+
+	return "Data finished loading"
+end
+
+--[[function Profiles._playerRemoved(_player : Player)
+	if Profiles._maids[_player.Name] then
+		Profiles._maids[_player.Name]:DoCleaning()
+		Profiles._maids[_player.Name] = nil
+	end
+
+	if Profiles._profiles[_player] and Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+		local profile = Profiles._replicatedStorage.network.Profiles[tostring(_player.UserId)]
+		if profile:GetAttribute("Loaded") then
+			Profiles._profiles[_player].Data = Profiles._folderToDictionary(profile)
+			Profiles._profiles[_player]:Release()
+			print(string.format("[Profiles] Data successfully saved for %s (%s)", _player.Name, tostring(_player.UserId)))
+		else
+			if Profiles._profiles[_player] then
+				Profiles._profiles[_player]:Release()
+			end
+
+			if Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+				Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)):Destroy()
+			end
+			print(string.format("[Profiles] Data failed to save for %s (%s)", _player.Name, tostring(_player.UserId)))
+		end
+
+		profile:Destroy()
+	else
+		if Profiles._profiles[_player] then
+			Profiles._profiles[_player]:Release()
+		end
+		
+		if Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+			Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)):Destroy()
+		end
+		print(string.format("[Profiles] Data failed to save for %s (%s)", _player.Name, tostring(_player.UserId)))
+	end
+end]]
+
+function Profiles._playerRemoved(_player : Player)
+	if Profiles._maids[_player.Name] then
+		Profiles._maids[_player.Name]:DoCleaning()
+		Profiles._maids[_player.Name] = nil
+	end
+
+	local function saveProfile(_player, profile)
+		if profile:GetAttribute("Loaded") then
+			-- Tool reset if bugged
+			for i, v in pairs(profile.tools:GetChildren()) do
+				if v.Value == 10 then
+					profile.tools.KickSlot.Value = 1
+					profile.tools.SkillsSlot.Value = 2
+					profile.tools.TackleSlot.Value = 3
+					profile.tools.PassSlot.Value = 4
+					profile.tools.GKSlot.Value = 5
+				end
+			end
+
+			Profiles._profiles[_player].Data = Profiles._folderToDictionary(profile)
+			Profiles._profiles[_player]:Release()
+
+			profile:Destroy()
+			print(string.format("[Profiles] Data successfully saved for %s (%s)", _player.Name, tostring(_player.UserId)))
+		else
+			Profiles._saveAttempts[_player] = 0
+			while true do
+				Profiles._saveAttempts[_player] += 1
+				task.wait(7)
+				if profile:GetAttribute("Loaded") then
+					local profile = Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId))
+					Profiles._profiles[_player].Data = Profiles._folderToDictionary(profile)
+					Profiles._profiles[_player]:Release()
+
+					profile:Destroy()
+					Profiles._saveAttempts[_player] = nil
+					print(string.format("[Profiles] Data successfully saved for %s (%s)", _player.Name, tostring(_player.UserId)))
+					break
+				end
+
+				if Profiles._saveAttempts[_player] == 10 then
+					Profiles._saveAttempts[_player] = nil
+					if Profiles._profiles[_player] then
+						Profiles._profiles[_player]:Release()
+						print(string.format("[Profiles] Data restored to last savepoint for %s (%s)", _player.Name, tostring(_player.UserId)))
+					end
+
+					if Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+						Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)):Destroy()
+					end
+
+					print(string.format("[Profiles] Data failed to save for %s (%s)", _player.Name, tostring(_player.UserId)))
+					break
+				end
+			end
+		end
+	end
+
+	if Profiles._profiles[_player] and Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+		saveProfile(_player, Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)))
+	else
+		Profiles._saveAttempts[_player] = 0
+		while true do
+			Profiles._saveAttempts[_player] += 1
+			task.wait(7)
+			if Profiles._profiles[_player] and Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+				saveProfile(_player, Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)))
+				break
+			end
+
+			if Profiles._saveAttempts[_player] == 10 then
+				Profiles._saveAttempts[_player] = nil
+				if Profiles._profiles[_player] then
+					Profiles._profiles[_player]:Release()
+					print(string.format("[Profiles] Data restored to last savepoint for %s (%s)", _player.Name, tostring(_player.UserId)))
+				end
+
+				if Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)) then
+					Profiles._replicatedStorage.network.Profiles:FindFirstChild(tostring(_player.UserId)):Destroy()
+				end
+
+				print(string.format("[Profiles] Data failed to save for %s (%s)", _player.Name, tostring(_player.UserId)))
+				break
+			end
+		end
+	end
+end
+
+function Profiles._updatePoints(_userId, _points)
+	if Profiles._references.Profiles:FindFirstChild(tostring(_userId)) then
+		local _data = Profiles._references.Profiles:WaitForChild(tostring(_userId), 100)
+		_data.stats.Cash.Value += _points
+
+		for _, _player in next, Profiles._services.Players:GetPlayers() do
+			if _player and _player.UserId == _userId then
+				_player:Kick()
+			end
+		end
+	else
+		local _data = Profiles._sample:Clone()
+		local _dictionary = Profiles._storage:LoadProfileAsync("user_" .. _userId)
+
+		_data.Parent = game.ReplicatedStorage
+
+		if _dictionary then
+			_dictionary:AddUserId(_userId)
+			_dictionary:Reconcile()
+		end
+
+		local function load(_folder, _array)
+			for _index, _table in next, _array do
+				if type(_table) == "table" then
+					load(_folder:FindFirstChild(_index), _table)
+				else
+					if _folder:FindFirstChild(_index) then
+						local _value = _folder[_index]
+
+						if _value.Name == _index and (_value:IsA("ValueBase") or _value.ClassName:match("Value")) then
+							if _value:IsA("Color3Value") then
+								_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+							elseif _value:IsA("BoolValue") then
+								if _table == "true" then
+									_value.Value = true
+								else
+									_value.Value = false
+								end
+							else
+								_value.Value = _table
+							end
+						end
+					else
+						local valueType = "StringValue"
+
+						if _table == "true" or _table == "false" then
+							valueType = "BoolValue"
+						elseif string.find(_table, ",") then
+							valueType = "Color3Value"
+						end
+
+						local _value = Instance.new(valueType)
+						_value.Name = _index
+
+						if _table == "true" then
+							_value.Value = true
+						elseif _table == "false" then
+							_value.Value = false
+						elseif string.find(_table, ",") then
+							_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+						else
+							_value.Value = _table
+						end
+
+						_value.Parent = _folder
+					end
+				end
+			end
+		end
+
+		load(_data, _dictionary.Data)
+
+		_data.stats.Cash.Value += _points
+		_dictionary.Data = Profiles._folderToDictionary(_data)
+		_dictionary:Release()
+		_data:Destroy()
+	end
+end
+
+function Profiles._banPlayer(_userId, _days)
+	if Profiles._references.Profiles:FindFirstChild(tostring(_userId)) then
+		local _data = Profiles._references.Profiles:WaitForChild(tostring(_userId), 100)
+		_data.stats["Game Banned"].Value = tostring(tick() + (_days * 60 * 60 * 24))
+
+		for _, _player in next, Profiles._services.Players:GetPlayers() do
+			if _player and _player.UserId == _userId then
+				_player:Kick()
+			end
+		end
+	else
+		local _data = Profiles._sample:Clone()
+		local _dictionary = Profiles._storage:LoadProfileAsync("user_" .. _userId)
+
+		_data.Parent = game.ReplicatedStorage
+
+		if _dictionary then
+			_dictionary:AddUserId(_userId)
+			_dictionary:Reconcile()
+		end
+
+		local function load(_folder, _array)
+			for _index, _table in next, _array do
+				if type(_table) == "table" then
+					load(_folder:FindFirstChild(_index), _table)
+				else
+					if _folder:FindFirstChild(_index) then
+						local _value = _folder[_index]
+
+						if _value.Name == _index and (_value:IsA("ValueBase") or _value.ClassName:match("Value")) then
+							if _value:IsA("Color3Value") then
+								_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+							elseif _value:IsA("BoolValue") then
+								if _table == "true" then
+									_value.Value = true
+								else
+									_value.Value = false
+								end
+							else
+								_value.Value = _table
+							end
+						end
+					else
+						local valueType = "StringValue"
+
+						if _table == "true" or _table == "false" then
+							valueType = "BoolValue"
+						elseif string.find(_table, ",") then
+							valueType = "Color3Value"
+						end
+
+						local _value = Instance.new(valueType)
+						_value.Name = _index
+
+						if _table == "true" then
+							_value.Value = true
+						elseif _table == "false" then
+							_value.Value = false
+						elseif string.find(_table, ",") then
+							_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+						else
+							_value.Value = _table
+						end
+
+						_value.Parent = _folder
+					end
+				end
+			end
+		end
+
+		load(_data, _dictionary.Data)
+		_data.stats["Game Banned"].Value = tostring(tick() + (_days * 60 * 60 * 24))
+
+		_dictionary.Data = Profiles._folderToDictionary(_data)
+		_dictionary:Release()
+		_data:Destroy()
+	end
+end
+
+function Profiles._unbanPlayer(_userId)
+	if Profiles._references.Profiles:FindFirstChild(tostring(_userId)) then
+		local _data = Profiles._references.Profiles:WaitForChild(tostring(_userId), 100)
+		_data.stats.Banned.Value = ""
+		_data.stats.Reason.Value = ""
+		_data.stats["Game Banned"].Value = ""
+
+		for _, _player in next, Profiles._services.Players:GetPlayers() do
+			if _player and _player.UserId == _userId then
+				_player:Kick()
+			end
+		end
+	else
+		local _data = Profiles._sample:Clone()
+		local _dictionary = Profiles._storage:LoadProfileAsync("user_" .. _userId)
+
+		_data.Parent = game.ReplicatedStorage
+
+		if _dictionary then
+			_dictionary:AddUserId(_userId)
+			_dictionary:Reconcile()
+		end
+
+		local function load(_folder, _array)
+			for _index, _table in next, _array do
+				if type(_table) == "table" then
+					load(_folder:FindFirstChild(_index), _table)
+				else
+					if _folder:FindFirstChild(_index) then
+						local _value = _folder[_index]
+
+						if _value.Name == _index and (_value:IsA("ValueBase") or _value.ClassName:match("Value")) then
+							if _value:IsA("Color3Value") then
+								_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+							elseif _value:IsA("BoolValue") then
+								if _table == "true" then
+									_value.Value = true
+								else
+									_value.Value = false
+								end
+							else
+								_value.Value = _table
+							end
+						end
+					else
+						local valueType = "StringValue"
+
+						if _table == "true" or _table == "false" then
+							valueType = "BoolValue"
+						elseif string.find(_table, ",") then
+							valueType = "Color3Value"
+						end
+
+						local _value = Instance.new(valueType)
+						_value.Name = _index
+
+						if _table == "true" then
+							_value.Value = true
+						elseif _table == "false" then
+							_value.Value = false
+						elseif string.find(_table, ",") then
+							_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+						else
+							_value.Value = _table
+						end
+
+						_value.Parent = _folder
+					end
+				end
+			end
+		end
+
+		load(_data, _dictionary.Data)
+
+		_data.stats.Banned.Value = ""
+		_data.stats.Reason.Value = ""
+		_data.stats["Game Banned"].Value = ""
+
+		_dictionary.Data = Profiles._folderToDictionary(_data)
+		_dictionary:Release()
+		_data:Destroy()
+	end
+end
+
+function Profiles._resetLayout(_userId)
+	if Profiles._references.Profiles:FindFirstChild(tostring(_userId)) then
+		local _data = Profiles._references.Profiles:WaitForChild(tostring(_userId), 100)
+		_data.tools.KickSlot.Value = 1
+		_data.tools.SkillsSlot.Value = 2
+		_data.tools.TackleSlot.Value = 3
+		_data.tools.PassSlot.Value = 4
+		_data.tools.GKSlot.Value = 5
+
+		for _, _player in next, Profiles._services.Players:GetPlayers() do
+			if _player and _player.UserId == _userId then
+				_player:Kick()
+			end
+		end
+	else
+		local _data = Profiles._sample:Clone()
+		local _dictionary = Profiles._storage:LoadProfileAsync("user_" .. _userId)
+
+		_data.Parent = game.ReplicatedStorage
+
+		if _dictionary then
+			_dictionary:AddUserId(_userId)
+			_dictionary:Reconcile()
+		end
+
+		local function load(_folder, _array)
+			for _index, _table in next, _array do
+				if type(_table) == "table" then
+					load(_folder:FindFirstChild(_index), _table)
+				else
+					if _folder:FindFirstChild(_index) then
+						local _value = _folder[_index]
+
+						if _value.Name == _index and (_value:IsA("ValueBase") or _value.ClassName:match("Value")) then
+							if _value:IsA("Color3Value") then
+								_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+							elseif _value:IsA("BoolValue") then
+								if _table == "true" then
+									_value.Value = true
+								else
+									_value.Value = false
+								end
+							else
+								_value.Value = _table
+							end
+						end
+					else
+						local valueType = "StringValue"
+
+						if _table == "true" or _table == "false" then
+							valueType = "BoolValue"
+						elseif string.find(_table, ",") then
+							valueType = "Color3Value"
+						end
+
+						local _value = Instance.new(valueType)
+						_value.Name = _index
+
+						if _table == "true" then
+							_value.Value = true
+						elseif _table == "false" then
+							_value.Value = false
+						elseif string.find(_table, ",") then
+							_value.Value = Color3.new(tonumber(_table:split(",")[1]), tonumber(_table:split(",")[2]), tonumber(_table:split(",")[3]))
+						else
+							_value.Value = _table
+						end
+
+						_value.Parent = _folder
+					end
+				end
+			end
+		end
+
+		load(_data, _dictionary.Data)
+
+		_data.tools.KickSlot.Value = 1
+		_data.tools.SkillsSlot.Value = 2
+		_data.tools.TackleSlot.Value = 3
+		_data.tools.PassSlot.Value = 4
+		_data.tools.GKSlot.Value = 5
+
+		_dictionary.Data = Profiles._folderToDictionary(_data)
+		_dictionary:Release()
+		_data:Destroy()
+	end
+end
+
+return Profiles
