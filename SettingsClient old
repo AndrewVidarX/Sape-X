@@ -1,0 +1,113 @@
+
+local settingsGui = script.Parent
+local main = settingsGui:WaitForChild("Main")
+local tabs = main:WaitForChild("Tabs")
+local content = main:WaitForChild("Content")
+
+local WHITE = Color3.fromRGB(255, 255, 255)
+local TAB_BACKGROUND = Color3.fromRGB(25, 25, 25)
+
+local function removeGenerated(parent)
+	for _, child in ipairs(parent:GetChildren()) do
+		if child:GetAttribute("PFLGenerated") == true then
+			child:Destroy()
+		end
+	end
+end
+
+local function createTab(name, order)
+	local button = Instance.new("TextButton")
+	button.Name = name .. "Tab"
+	button.Text = name
+	button.LayoutOrder = order
+	button.Size = UDim2.new(0, 130, 1, 0)
+	button.BackgroundTransparency = 0
+	button.BackgroundColor3 = TAB_BACKGROUND
+	button.BorderSizePixel = 0
+	button.Font = Enum.Font.GothamMedium
+	button.TextSize = 16
+	button.TextColor3 = WHITE
+	button.AutoButtonColor = true
+	button:SetAttribute("PFLGenerated", true)
+	button.Parent = tabs
+
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = button
+
+	return button
+end
+
+local function createHeading(name, order)
+	local heading = Instance.new("TextLabel")
+	heading.Name = name .. "Heading"
+	heading.Text = name
+	heading.LayoutOrder = order
+	heading.Size = UDim2.new(1, -20, 0, 35)
+	heading.BackgroundTransparency = 1
+	heading.TextXAlignment = Enum.TextXAlignment.Left
+	heading.Font = Enum.Font.GothamBold
+	heading.TextSize = 20
+	heading.TextColor3 = WHITE
+	heading:SetAttribute("PFLGenerated", true)
+	heading.Parent = content
+end
+
+local function createDescription(message, order)
+	local label = Instance.new("TextLabel")
+	label.Name = "Placeholder"
+	label.Text = message
+	label.LayoutOrder = order
+	label.Size = UDim2.new(1, -20, 0, 35)
+	label.BackgroundTransparency = 1
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.TextWrapped = true
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 14
+	label.TextColor3 = WHITE
+	label:SetAttribute("PFLGenerated", true)
+	label.Parent = content
+end
+
+local pages = {
+	Main = function()
+		createHeading("Visual", 1)
+		createDescription("Visual settings will go here.", 2)
+
+		createHeading("Audio", 3)
+		createDescription("Audio settings will go here.", 4)
+
+		createHeading("Gameplay", 5)
+		createDescription("Gameplay settings will go here.", 6)
+	end,
+
+	Miscellaneous = function()
+		createHeading("Miscellaneous", 1)
+		createDescription("Extra settings will go here.", 2)
+	end,
+
+	Keybinds = function()
+		createHeading("Keybinds", 1)
+		createDescription("Keyboard, mouse and controller bindings will go here.", 2)
+	end,
+}
+
+local function openPage(pageName)
+	removeGenerated(content)
+	pages[pageName]()
+	content.CanvasPosition = Vector2.new(0, 0)
+end
+
+removeGenerated(tabs)
+
+local pageOrder = {"Main", "Miscellaneous", "Keybinds"}
+
+for index, pageName in ipairs(pageOrder) do
+	local button = createTab(pageName, index)
+
+	button.Activated:Connect(function()
+		openPage(pageName)
+	end)
+end
+
+openPage("Main")
