@@ -1,0 +1,589 @@
+local engine = _G._engine
+local references = engine.References
+local services = engine.Services
+
+local network = engine:load("Network").new()
+local maidClass = engine:load("Maid")
+local colorPicker = engine:load("ColorPicker").new(script.Parent)
+local formatNumber = engine:load("FormatNumber", "utils")
+local theme = engine:load("Theme", "utils")
+
+local localPlayer = services.Players.LocalPlayer
+local mouse = localPlayer:GetMouse()
+local playerGui = references.PlayerGui
+local profile = references.Profile
+
+local main = playerGui:WaitForChild("main", 100)
+local menu = playerGui:WaitForChild("menu", 100)
+
+local config = {
+	categories = {
+		gameplay = {
+			"Atmosphere",
+			"Ambience",
+			"Referee",
+			"CammySounds",
+			"Ball",
+			"Fall",
+			"Jump",
+			"Materials",
+			"Player",
+			"Rain",
+			"Slide",
+			"Snow",
+			"Weather"
+		},
+		interface = {
+			"UI"
+		},
+		soundtrack = {
+			"Soundtrack"
+		}
+	},
+	volume = {
+		gameplay = {},
+		interface = {},
+		soundtrack = {},
+		other = {}
+	},
+	cache = {}
+}
+
+function config:update(value)
+	if value.Name == "Performance Mode" then
+		if value.Value then
+			for _, reference in next, {"Field Pattern", "Field Roughness", "Field Material", "Shadows", "Stadium", "Weather Effects", "Grass Stains", "Dynamic Goal Nets"} do
+				profile.settings.Visual[reference].Value = false
+				network:send("replicateValue", profile.settings.Visual[reference], false)
+			end
+		end
+	elseif value.Name == "Field Pattern" then
+		workspace.pitch.textures.Pattern.Enabled = value.Value
+	elseif value.Name == "Field Roughness" then
+		local maid
+		
+		if self.cache[value.Name] then
+			maid = self.cache[value.Name]
+			maid:DoCleaning()
+		else
+			maid = maidClass.new()
+			self.cache[value.Name] = maid
+		end
+		
+		for _, part in next, workspace:GetDescendants() do
+			if part and part:IsA("BasePart") and (part.Name == "textures" or part.Name == "Outer") then
+				local surfaceGui = part:WaitForChild("Roughness", 100)
+
+				if surfaceGui then
+					surfaceGui.Enabled = value.Value
+				end
+			end
+		end
+		
+		maid["descendantAdded"] = workspace.DescendantAdded:Connect(function(part)
+			if part and part:IsA("BasePart") and (part.Name == "textures" or part.Name == "Outer") then
+				local surfaceGui = part:WaitForChild("Roughness", 100)
+				
+				if surfaceGui then
+					surfaceGui.Enabled = value.Value
+				end
+			end
+		end)
+	elseif value.Name == "Field Material" then
+		local maid
+
+		if self.cache[value.Name] then
+			maid = self.cache[value.Name]
+			maid:DoCleaning()
+		else
+			maid = maidClass.new()
+			self.cache[value.Name] = maid
+		end
+
+		for _, part in next, workspace:GetDescendants() do
+			if part and part:IsA("BasePart") and (part.Name == "Grass" or part.Name == "Outer") then
+				if value.Value then
+					part.Material = Enum.Material.Grass
+					part.MaterialVariant = "Grass"
+				else
+					part.Material = Enum.Material.SmoothPlastic
+					part.MaterialVariant = ""
+				end
+			end
+		end
+
+		maid["descendantAdded"] = workspace.DescendantAdded:Connect(function(part)
+			if part and part:IsA("BasePart") and (part.Name == "Grass" or part.Name == "Outer") then
+				if value.Value then
+					part.Material = Enum.Material.Grass
+					part.MaterialVariant = "Grass"
+				else
+					part.Material = Enum.Material.SmoothPlastic
+					part.MaterialVariant = ""
+				end
+			end
+		end)
+	elseif value.Name == "Grass Stains" then
+		if not value.Value then
+			for _, decal in next, localPlayer.Character:GetDescendants() do
+				if decal and decal:IsA("Decal") and decal.Name == "Stain" then
+					decal:Destroy()
+				end
+			end
+		end
+	elseif value.Name == "Shadows" then
+		services.Lighting.GlobalShadows = value.Value
+	elseif value.Name == "Weather Effects" then
+		if not value.Value then
+			main.overlay.rain.Visible = false
+			main.overlay.snow.Visible = false
+		elseif value.Value and references.Main.config.Weather.Value == "Rain" then
+			main.overlay.rain.Visible = true
+			main.overlay.snow.Visible = false
+		elseif value.Value and references.Main.config.Weather.Value == "Snow" then
+			main.overlay.snow.Visible = true
+			main.overlay.rain.Visible = false
+		end
+	elseif value.Name == "Pitch Color" then
+		workspace.pitch.main.Grass.Color = value.Value
+	elseif value.Name == "Outer Pitch Color" then
+		local maid
+
+		if self.cache[value.Name] then
+			maid = self.cache[value.Name]
+			maid:DoCleaning()
+		else
+			maid = maidClass.new()
+			self.cache[value.Name] = maid
+		end
+
+		for _, part in next, workspace:GetDescendants() do
+			if part and part:IsA("BasePart") and part.Name == "Outer" then
+				part.Color = value.Value
+			end
+		end
+
+		maid["descendantAdded"] = workspace.DescendantAdded:Connect(function(part)
+			if part and part:IsA("BasePart") and part.Name == "Outer" then
+				part.Color = value.Value
+			end
+		end)
+	elseif value.Name == "Dynamic Goal Nets" then
+		if value.Value then
+			for _, model in next, workspace.pitch.nets:GetChildren() do
+				if model and model:FindFirstChild("Box") then
+					model.Box:Destroy()
+					model.Net.Net.Transparency = 0.01
+				end
+			end
+		else
+			for _, model in next, workspace.pitch.nets:GetChildren() do
+				if model and model:FindFirstChild("BoxNetHolder") and not model:FindFirstChild("Box") then
+					model.Net.Net.Transparency = 1
+					
+					local boxNet = references.Main.storage.Box:Clone()
+					boxNet.Parent = model
+					boxNet:SetPrimaryPartCFrame(model.BoxNetHolder.CFrame)
+				end
+			end
+		end
+	elseif value.Name == "Master Volume" then
+		for category, array in next, self.volume do
+			for sound, volume in next, array do
+				sound.Volume = volume * (tonumber(value.Value) / 100)
+			end
+		end
+	elseif value.Name == "Gameplay Volume" then
+		for sound, volume in next, self.volume.gameplay do
+			sound.Volume = volume * (tonumber(value.Value) / 100)
+		end
+	elseif value.Name == "Interface Volume" then
+		for sound, volume in next, self.volume.interface do
+			sound.Volume = volume * (tonumber(value.Value) / 100)
+		end
+	elseif value.Name == "Soundtrack Volume" then
+		for sound, volume in next, self.volume.soundtrack do
+			sound.Volume = volume * (tonumber(value.Value) / 100)
+		end
+	end
+end
+
+function config:create(value)
+	if value:IsA("BoolValue") then
+		local category = value:FindFirstChild("Category") and string.lower(value.Category.Value) or string.lower(value.Parent.Name)
+		
+		local template = references.Main.ui.bool:Clone()
+		template.Parent = menu.pages.settings.main.pages.settings[category].scroll.main
+		template.Name = value.Name
+		template.label.Text = string.upper(value.Name)
+		
+		if not value.Value then
+			template.toggle.icon.Visible = false
+			template.toggle.BackgroundColor3 = theme.Text
+		end
+		
+		self:update(value)
+		
+		value.Changed:Connect(function()
+			if value.Value then
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Accent}):Play()
+				template.toggle.icon.Visible = true
+			else
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text}):Play()
+				template.toggle.icon.Visible = false
+			end
+		end)
+		
+		template.toggle.button.MouseEnter:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Hover:Play()
+			
+			if value.Value then
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Accent:Lerp(Color3.new(0, 0, 0), 0.05)}):Play()
+			else
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text:Lerp(Color3.new(0, 0, 0), 0.15)}):Play()
+			end
+		end)
+		
+		template.toggle.button.MouseLeave:Connect(function()
+			if value.Value then
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Accent}):Play()
+			else
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text}):Play()
+			end
+		end)
+		
+		template.toggle.button.MouseButton1Click:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Click:Play()
+			value.Value = not value.Value
+			self:update(value)
+			
+			if value.Value then
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Accent}):Play()
+				template.toggle.icon.Visible = true
+			else
+				services.TweenService:Create(template.toggle, TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text}):Play()
+				template.toggle.icon.Visible = false
+			end
+			
+			network:send("replicateValue", value, value.Value)
+		end)
+		
+	elseif tonumber(value.Value) ~= nil then
+		local category = value:FindFirstChild("Category") and string.lower(value.Category.Value) or string.lower(value.Parent.Name)
+		local storedValue = value.Value
+		local mouseDown = false
+		
+		local min = value:FindFirstChild("Min") and tonumber(value.Min.Value) or 0
+		local max = value:FindFirstChild("Max") and tonumber(value.Max.Value) or 100
+		local range = max - min
+		
+		local function getFraction()
+			return math.clamp((tonumber(value.Value) - min) / range, 0, 1)
+		end
+
+		local template = references.Main.ui.slider:Clone()
+		template.Parent = menu.pages.settings.main.pages.settings[category].scroll.main
+		template.Name = value.Name
+		template.label.Text = string.upper(value.Name)
+		template.slider.slide.Size = UDim2.new(getFraction(), 0, 1, 0)
+		
+		self:update(value)
+		value.Changed:Connect(function()
+			self:update(value)
+		end)
+		
+		if value.Parent.Name == "Audio" then
+			template.slider.value.PlaceholderText = formatNumber.FormatDecimal(tonumber(value.Value), 0) .. "%"
+			template.slider.value.Text = formatNumber.FormatDecimal(tonumber(value.Value), 0) .. "%"
+		else
+			template.slider.value.PlaceholderText = formatNumber.FormatDecimal(tonumber(value.Value), 2)
+			template.slider.value.Text = formatNumber.FormatDecimal(tonumber(value.Value), 2)
+		end
+		
+		template.slider.value.FocusLost:Connect(function()
+			if tonumber(template.slider.value.Text) and tonumber(template.slider.value.Text) >= min and tonumber(template.slider.value.Text) <= max then
+				local text = template.slider.value.Text
+				
+				if value.Parent.Name == "Audio" then
+					template.slider.value.Text = formatNumber.FormatDecimal(tonumber(template.slider.value.Text), 0) .. "%"
+				else
+					template.slider.value.Text = formatNumber.FormatDecimal(tonumber(template.slider.value.Text), 2)
+				end
+				
+				template.slider.value.PlaceholderText = template.slider.value.Text
+				value.Value = text
+				template.slider.slide.Size = UDim2.new(getFraction(), 0, 1, 0)
+				network:send("replicateValue", value, value.Value)
+			else
+				template.value.Text = template.value.PlaceholderText
+			end
+		end)
+		
+		template.slider.edit.MouseButton1Click:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Click:Play()
+			template.slider.value:CaptureFocus()
+		end)
+		
+		template.slider.button.MouseEnter:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Hover:Play()
+			services.TweenService:Create(template.slider, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text:Lerp(Color3.new(0, 0, 0), 0.15)}):Play()
+			services.TweenService:Create(template.slider.slide, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Accent:Lerp(Color3.new(0, 0, 0), 0.05)}):Play()
+		end)
+
+		template.slider.button.MouseLeave:Connect(function()
+			services.TweenService:Create(template.slider, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text}):Play()
+			services.TweenService:Create(template.slider.slide, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Accent}):Play()
+		end)
+
+		template.slider.button.MouseButton1Down:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Click:Play()
+			mouseDown = true
+		end)
+		
+		services.UserInputService.InputEnded:Connect(function(inputObject, processedEvent)
+			if mouseDown and (inputObject.UserInputType == Enum.UserInputType.MouseButton1 or inputObject.UserInputType == Enum.UserInputType.Touch) then
+				mouseDown = false
+				value.Value = storedValue
+				network:send("replicateValue", value, value.Value)
+			end
+		end)
+		
+		mouse.Move:Connect(function()
+			if mouseDown then
+				local mouseLocation = workspace.CurrentCamera:WorldToScreenPoint(mouse.Hit.Position)
+				local progress = math.clamp((mouseLocation.X - template.slider.AbsolutePosition.X) / template.slider.AbsoluteSize.X, 0, 1)
+				local newValue = formatNumber.FormatDecimal(math.clamp(min + tonumber(range * progress), min, max), 2)
+
+				if value.Parent.Name == "Audio" then
+					template.slider.value.Text = formatNumber.FormatDecimal(math.clamp(min + tonumber(range * progress), min, max), 0) .. "%"
+				else
+					template.slider.value.Text = newValue
+				end
+
+				template.slider.value.PlaceholderText = template.slider.value.Text
+				template.slider.slide.Size = UDim2.new(progress, 0, 1, 0)
+				storedValue = newValue
+			end
+		end)
+	elseif value:IsA("Color3Value") then
+		local category = value:FindFirstChild("Category") and string.lower(value.Category.Value) or string.lower(value.Parent.Name)
+		
+		local template = references.Main.ui.color:Clone()
+		template.Parent = menu.pages.settings.main.pages.settings[category].scroll.main
+		template.Name = value.Name
+		template.label.Text = string.upper(value.Name)
+		template.value.color.BackgroundColor3 = value.Value
+		template.value.gradient.BackgroundColor3 = value.Value
+		template.value.value.Text = string.format("%s,%s,%s", formatNumber.FormatDecimal(value.Value.R * 255, 0), formatNumber.FormatDecimal(value.Value.G * 255, 0), formatNumber.FormatDecimal(value.Value.B * 255, 0))
+		
+		self:update(value)
+		value.Changed:Connect(function()
+			self:update(value)
+		end)
+		
+		colorPicker.event.Event:Connect(function(parsedValue)
+			if parsedValue and parsedValue.Name == value.Name then
+				template.value.color.BackgroundColor3 = value.Value
+				template.value.gradient.BackgroundColor3 = value.Value
+				template.value.value.Text = string.format("%s,%s,%s", formatNumber.FormatDecimal(value.Value.R * 255, 0), formatNumber.FormatDecimal(value.Value.G * 255, 0), formatNumber.FormatDecimal(value.Value.B * 255, 0))
+			end
+		end)
+		
+		template.value.button.MouseEnter:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Hover:Play()
+			services.TweenService:Create(template.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text:Lerp(Color3.new(0, 0, 0), 0.15)}):Play()
+			services.TweenService:Create(template.value.color, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = value.Value:Lerp(Color3.new(0, 0, 0), 0.05)}):Play()
+			services.TweenService:Create(template.value.gradient, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = value.Value:Lerp(Color3.new(0, 0, 0), 0.05)}):Play()
+		end)
+
+		template.value.button.MouseLeave:Connect(function()
+			services.TweenService:Create(template.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text}):Play()
+			services.TweenService:Create(template.value.color, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = value.Value}):Play()
+			services.TweenService:Create(template.value.gradient, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = value.Value}):Play()
+		end)
+		
+		template.value.button.MouseButton1Click:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+
+			references.Main.sounds.UI.Click:Play()
+			colorPicker:prompt(value)
+		end)
+	elseif value:FindFirstChild("Dropdown") then
+		local category = value:FindFirstChild("Category") and string.lower(value.Category.Value) or string.lower(value.Parent.Name)
+		local toggle = false
+
+		local template = references.Main.ui.dropdown:Clone()
+		template.Parent = menu.pages.settings.main.pages.settings[category].scroll.main
+		template.Name = value.Name
+		template.label.Text = string.upper(value.Name)
+		template.menu.menu.value.value.Text = string.upper(value.Value)
+		
+		self:update(value)
+		value.Changed:Connect(function()
+			self:update(value)
+		end)
+		
+		for _, newValue in next, value:GetChildren() do
+			if newValue and newValue.Name ~= value.Value and newValue.Name ~= "Dropdown" and newValue.Name ~= "Category" and newValue.Name ~= "DefaultValue" then
+				local newFrame = template.menu.menu.value:Clone()
+				newFrame.Parent =  template.menu.menu
+				newFrame.Name = string.lower(newValue.Name)
+				newFrame.value.Text = string.upper(newValue.Name)
+				
+				local button = references.Main.ui.button:Clone()
+				button.Parent = newFrame
+				
+				button.MouseEnter:Connect(function()
+					if script.Parent:GetAttribute("freeze") then
+						return
+					end
+					
+					if toggle then
+						references.Main.sounds.UI.Hover:Play()
+						services.TweenService:Create(newFrame, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+						services.TweenService:Create(newFrame.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = theme.Text}):Play()
+					end
+				end)
+				
+				button.MouseLeave:Connect(function()
+					services.TweenService:Create(newFrame, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+					services.TweenService:Create(newFrame.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+				end)
+				
+				button.MouseButton1Click:Connect(function()
+					if script.Parent:GetAttribute("freeze") then
+						return
+					end
+					
+					if toggle then
+						toggle = false
+						references.Main.sounds.UI.Click:Play()
+						template.menu.menu.value.value.Text = newFrame.value.Text
+						newFrame.value.Text = string.upper(value.Value)
+						
+						for _, option in next, value:GetChildren() do
+							if option and string.lower(option.Name) == string.lower(template.menu.menu.value.value.Text) then
+								value.Value = option.Name
+							end
+						end
+						
+						template:TweenSize(UDim2.new(1, -4, 0, 40), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+						template.menu:TweenSize(UDim2.new(0.5, -10, 0, 32), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+						
+						network:send("replicateValue", value, value.Value)
+					end
+				end)
+			end
+		end
+
+		template.menu.button.MouseEnter:Connect(function()
+			if script.Parent:GetAttribute("freeze") then
+				return
+			end
+			
+			references.Main.sounds.UI.Hover:Play()
+			
+			if not toggle then
+				services.TweenService:Create(template.menu, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text:Lerp(Color3.new(0, 0, 0), 0.15)}):Play()
+			else
+				services.TweenService:Create(template.menu.menu.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+				services.TweenService:Create(template.menu.menu.value.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = theme.Text}):Play()
+			end
+		end)
+
+		template.menu.button.MouseLeave:Connect(function()
+			if not toggle then
+				services.TweenService:Create(template.menu, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = theme.Text}):Play()
+			else
+				services.TweenService:Create(template.menu.menu.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+				services.TweenService:Create(template.menu.menu.value.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+			end
+		end)
+		
+		for _, reference in next, {"button", "dropdown"} do
+			template.menu[reference].MouseButton1Click:Connect(function()
+				if script.Parent:GetAttribute("freeze") then
+					return
+				end
+				
+				references.Main.sounds.UI.Click:Play()
+				
+				if not toggle then
+					toggle = true
+					template:TweenSize(UDim2.new(1, -4, 0, (template.menu.menu.AbsoluteSize.Y / menu.pages.settings.main.UIScale.Scale) + 8), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+					template.menu:TweenSize(UDim2.new(0.5, -10, 0, (template.menu.menu.AbsoluteSize.Y / menu.pages.settings.main.UIScale.Scale)), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+				else
+					toggle = false
+					services.TweenService:Create(template.menu.menu.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+					services.TweenService:Create(template.menu.menu.value.value, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+					template:TweenSize(UDim2.new(1, -4, 0, 40), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+					template.menu:TweenSize(UDim2.new(0.5, -10, 0, 32), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+				end
+			end)
+		end
+	end
+end
+
+function config:init()
+	--[[  Volume  ]]-------------------------------------------------
+	
+	for _, sound in next, references.Main.sounds:GetDescendants() do
+		if sound and sound:IsA("Sound") then
+			local currentCategory = "other"
+			
+			for category, array in next, self.categories do
+				for _, parent in next, array do
+					if parent and sound:FindFirstAncestor(parent) then
+						currentCategory = category
+					end
+				end
+			end
+			
+			self.volume[currentCategory][sound] = sound.Volume
+		end
+	end
+	
+	self.volume.soundtrack[services.SoundService.soundtrack] = 0.5
+	
+	--[[  Buttons  ]]-------------------------------------------------
+	
+	for _, value in next, profile.settings.Audio:GetChildren() do
+		if value then
+			self:create(value)
+		end
+	end
+	
+	for _, value in next, profile.settings.Visual:GetChildren() do
+		if value then
+			self:create(value)
+		end
+	end
+end
+
+return config
