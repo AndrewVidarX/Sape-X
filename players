@@ -1,0 +1,1386 @@
+return {
+	_init = function()
+		local network = _G._engine:load("Network").new()
+		local ragdoll = _G._engine:load("Ragdoll")
+		local profiles = _G._engine:load("Profiles")
+		local maid = _G._engine:load("Maid")
+		local teleporter = _G._engine:load("Teleport")
+		local overhead = _G._engine:load("Overhead")
+		local voteKick = _G._engine:load("Votekick")
+		local voteFix = _G._engine:load("Votefix")
+		local teamService = _G._engine:load("TeamService", "utils")
+		local badgeService = _G._engine:load("BadgeService", "utils")
+		local subscriptionService = _G._engine:load("SubscriptionService", "utils")
+		local whitelist = _G._engine:load("Whitelist", "utils")
+		local blacklist = _G._engine:load("Blacklist", "utils")
+		local objectives = _G._engine:load("Objectives")
+		local designs = _G._references.Main.balls
+		local kits = _G._references.Main.kits
+		local boots = _G._references.Main.boots
+		local gloves = _G._references.Main.gloves
+		local accessories = _G._references.Main.accessories
+		local config = _G._references.Main.config
+
+		local dailyObjectives = {}
+		local connections = {}
+		local players = {}
+		local ragdolls = {}
+		local balls = {}
+
+		local handshakeData = {}
+		local limbs = {"Head", "UpperTorso", "LowerTorso", "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperLeg", "RightLowerLeg", "RightFoot", "RightBoot", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftBoot", "Collide", "Torso", "HumanoidRootPart"}
+		local originalLimbSizes = {}
+
+		local function ban(player, reason)
+			local config: BanConfigType = {
+				UserIds = {player.UserId},
+				Duration = -1,
+				DisplayReason = reason,
+				PrivateReason = reason,
+				ExcludeAltAccounts = false,
+				ApplyToUniverse = true
+			}
+
+			local success, errorMessage = pcall(function()
+				return _G._services.Players:BanAsync(config)
+			end)
+
+			print(success, errorMessage)
+		end
+
+		local function loadBallDesign(ball)
+			if designs[config.Ball.Value] then
+				local hideMesh = true
+
+				for _,v in next, ball.design:GetChildren() do
+					if v then
+						if v.Transparency == 0 then
+							hideMesh = false
+						end
+
+						v:Destroy()
+					end
+				end
+
+				local mesh = designs[config.Ball.Value]:Clone()
+				mesh.Parent = ball.design
+				mesh.Size = ball.Size
+				mesh.CFrame = ball.CFrame
+				mesh.Transparency = hideMesh and 1 or 0
+				ball.Transparency = 1
+
+				local weld = Instance.new("WeldConstraint", mesh)
+				weld.Part0 = mesh
+				weld.Part1 = ball
+			end
+		end
+
+		local function loadKit(player)
+			task.spawn(function()
+				if not player.Team then
+					task.wait(2.5)
+
+					if not player.Team then
+						return
+					end
+				end
+
+				local part = player.Character:WaitForChild("Jersey", 100)
+
+				if part then
+					local jersey = part:WaitForChild("jersey", 100)
+
+					if string.find(player.Team.Name, "Home") then
+						jersey.name.TextColor3 = teamService:getTextColorFromTeam("Home", string.find(player.Team.Name, "GK"))
+						jersey.number.TextColor3 = teamService:getTextColorFromTeam("Home", string.find(player.Team.Name, "GK"))
+					elseif string.find(player.Team.Name, "Away") then
+						jersey.name.TextColor3 = teamService:getTextColorFromTeam("Away", string.find(player.Team.Name, "GK"))
+						jersey.number.TextColor3 = teamService:getTextColorFromTeam("Away", string.find(player.Team.Name, "GK"))
+					end
+				end
+
+				for _, league in next, kits:GetChildren() do
+					if league.Name ~= "Template" then
+						for _, folder in next, league:GetChildren() do
+							if config.Stats:FindFirstChild(player.Team.Name) or string.find(player.Team.Name, "GK") then
+								if string.find(player.Team.Name, "GK") then
+									local teamName = "Home"
+
+									if string.find(player.Team.Name, "Away") then
+										teamName = "Away"
+									end
+
+									if string.lower(folder.Name) == string.lower(config.Stats[teamName].Team.Value) then
+										if folder:FindFirstChild("GK Shirt") or (folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Shirt")) then
+											if (folder:FindFirstChild("GK Shirt") and folder["GK Shirt"]:IsA("SurfaceAppearance")) or (folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Shirt") and folder[config.Stats[teamName]["Kit Type"].Value]["GK Shirt"]:IsA("SurfaceAppearance")) then
+												for _,v in next, player.Character:GetChildren() do
+													if v:IsA("Shirt") or v:IsA("Pants") then
+														v:Destroy()
+													end
+												end
+
+												_G._references.Main.storage.ClassicShirt:Clone().Parent = player.Character
+												_G._references.Main.storage.ClassicPants:Clone().Parent = player.Character
+
+												player.Character.ClassicShirt.Color3 = folder[config.Stats[teamName]["Kit Type"].Value].TeamColour.Value
+												player.Character.ClassicPants.Color3 = folder[config.Stats[teamName]["Kit Type"].Value].PantsColour.Value
+
+												if player.Character:FindFirstChild("LayeredShirt") then
+													player.Character.LayeredShirt.Handle.Transparency = 0
+													player.Character.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = true
+												end
+
+												if folder:FindFirstChild("GK Shirt") and player.Character.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance") then
+													player.Character.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance"):Destroy()
+													kits["GK Shirt"]:Clone().Parent = player.Character.LayeredShirt.Handle
+												elseif folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Shirt") then
+													player.Character.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance"):Destroy()
+													folder[config.Stats[teamName]["Kit Type"].Value]["GK Shirt"]:Clone().Parent = player.Character.LayeredShirt.Handle
+												end
+											else
+												for _,v in next, player.Character:GetChildren() do
+													if v:IsA("Shirt") or v:IsA("Pants") then
+														v:Destroy()
+													end
+												end
+
+												if player.Character:FindFirstChild("LayeredShirt") then
+													player.Character.LayeredShirt.Handle.Transparency = 1
+													player.Character.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = false
+												end
+
+												if player.Character:FindFirstChild("LayeredPants") then
+													player.Character.LayeredPants.Handle.Transparency = 1
+													player.Character.LayeredPants.Handle.AccessoryWrapLayer.Enabled = false
+												end
+
+												if folder:FindFirstChild("GK Shirt") or folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Shirt") then
+													if folder:FindFirstChild("GK Shirt") then
+														folder["GK Shirt"]:Clone().Parent = player.Character
+													elseif folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Shirt") then
+														folder[config.Stats[teamName]["Kit Type"].Value]["GK Shirt"]:Clone().Parent = player.Character
+													end
+												end
+
+												if folder:FindFirstChild("GK Pants") or folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Pants") then
+													if folder:FindFirstChild("GK Pants") then
+														folder["GK Pants"]:Clone().Parent = player.Character
+													elseif folder:FindFirstChild(config.Stats[teamName]["Kit Type"].Value) and folder[config.Stats[teamName]["Kit Type"].Value]:FindFirstChild("GK Pants") then
+														folder[config.Stats[teamName]["Kit Type"].Value]["GK Pants"]:Clone().Parent = player.Character
+													end
+												end
+											end
+										end
+									end
+								else
+									if string.lower(folder.Name) == string.lower(config.Stats[player.Team.Name].Team.Value) then
+										if folder:FindFirstChild("Shirt") or (folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Shirt")) then
+											if (folder:FindFirstChild("Shirt") and folder["Shirt"]:IsA("SurfaceAppearance")) or (folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Shirt") and folder[config.Stats[player.Team.Name]["Kit Type"].Value]["Shirt"]:IsA("SurfaceAppearance")) then
+												for _,v in next, player.Character:GetChildren() do
+													if v:IsA("Shirt") or v:IsA("Pants") then
+														v:Destroy()
+													end
+												end
+
+												_G._references.Main.storage.ClassicShirt:Clone().Parent = player.Character
+												_G._references.Main.storage.ClassicPants:Clone().Parent = player.Character
+
+												player.Character.ClassicShirt.Color3 = folder[config.Stats[player.Team.Name]["Kit Type"].Value].TeamColour.Value
+												player.Character.ClassicPants.Color3 = folder[config.Stats[player.Team.Name]["Kit Type"].Value].PantsColour.Value
+
+												if player.Character:FindFirstChild("LayeredShirt") then
+													player.Character.LayeredShirt.Handle.Transparency = 0
+													player.Character.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = true
+												end
+
+												if player.Character:FindFirstChild("LayeredPants") then
+													player.Character.LayeredPants.Handle.Transparency = 0
+													player.Character.LayeredPants.Handle.AccessoryWrapLayer.Enabled = true
+													player.Character.LayeredPants.Handle.Color = folder[config.Stats[player.Team.Name]["Kit Type"].Value].PantsColour.Value
+												end
+
+												if folder:FindFirstChild("Shirt") and player.Character.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance") then
+													player.Character.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance"):Destroy()
+													folder["Shirt"]:Clone().Parent = player.Character.LayeredShirt.Handle
+												elseif folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Shirt") then
+													player.Character.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance"):Destroy()
+													folder[config.Stats[player.Team.Name]["Kit Type"].Value]["Shirt"]:Clone().Parent = player.Character.LayeredShirt.Handle
+												end
+											else
+												for _,v in next, player.Character:GetChildren() do
+													if v:IsA("Shirt") or v:IsA("Pants") then
+														v:Destroy()
+													end
+												end
+
+												if player.Character:FindFirstChild("LayeredShirt") then
+													player.Character.LayeredShirt.Handle.Transparency = 1
+													player.Character.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = false
+												end
+
+												if player.Character:FindFirstChild("LayeredPants") then
+													player.Character.LayeredPants.Handle.Transparency = 1
+													player.Character.LayeredPants.Handle.AccessoryWrapLayer.Enabled = false
+												end
+
+												if folder:FindFirstChild("Shirt") or folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Shirt") then
+													if folder:FindFirstChild("Shirt") then
+														folder["Shirt"]:Clone().Parent = player.Character
+													elseif folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Shirt") then
+														folder[config.Stats[player.Team.Name]["Kit Type"].Value]["Shirt"]:Clone().Parent = player.Character
+													end
+												end
+
+												if folder:FindFirstChild("Pants") or folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Pants") then
+													if folder:FindFirstChild("Pants") then
+														folder["Pants"]:Clone().Parent = player.Character
+													elseif folder:FindFirstChild(config.Stats[player.Team.Name]["Kit Type"].Value) and folder[config.Stats[player.Team.Name]["Kit Type"].Value]:FindFirstChild("Pants") then
+														folder[config.Stats[player.Team.Name]["Kit Type"].Value]["Pants"]:Clone().Parent = player.Character
+													end
+												end
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end)
+		end
+
+		local function updateAccessories(profile, character)
+			character.Accessories:ClearAllChildren()
+			character.RightHand.Transparency = 0
+			character.LeftHand.Transparency = 0
+
+			for index = 1, 3 do
+				if accessories:FindFirstChild(profile.inventory.Current["Accessory " .. tostring(index)].Value) then
+					local accessory = accessories:WaitForChild(profile.inventory.Current["Accessory " .. tostring(index)].Value, 100)
+
+					local function addAccessory(object)
+						if object:FindFirstChild("Part1") and object:FindFirstChild("Weld") and character:FindFirstChild(object.Part1.Value) then
+							local meshPart = object:Clone()
+							meshPart.Parent = character.Accessories
+							meshPart.Weld.Part1 = character:WaitForChild(object.Part1.Value, 100)
+
+							for _, folder in next, character.Gloves:GetChildren() do
+								for _, glove in next, folder:GetChildren() do
+									if glove.Transparency == 0 and string.find(meshPart.Name, "Glove") then
+										meshPart.Transparency = 1
+									elseif glove.Transparency == 1 and string.find(meshPart.Name, "Glove") then
+										character.RightHand.Transparency = 1
+										character.LeftHand.Transparency = 1
+									elseif glove.Transparency == 1 and not character.Accessories:FindFirstChild("RightGlove") then
+										character.RightHand.Transparency = 0
+										character.LeftHand.Transparency = 0
+									end
+								end
+							end
+						end
+					end
+
+					if accessory:IsA("Model") then
+						for _, object in next, accessory:GetChildren() do
+							if object then
+								addAccessory(object)
+							end
+						end
+					else
+						addAccessory(accessory)
+					end
+				end
+			end
+		end
+
+		local function updateGloves(profile, gloves, character)
+			local reference = gloves:WaitForChild(profile.inventory.Current.Gloves.Value, 100)
+			local folder = character:WaitForChild("Gloves", 100)
+
+			if tonumber(reference.GloveType.Value) == 1 then
+				folder["2"].RightGlove.Transparency = 1
+				folder["2"].LeftGlove.Transparency = 1
+
+				if folder["1"].RightGlove:FindFirstChild("SurfaceAppearance") then
+					folder["1"].RightGlove.SurfaceAppearance:Destroy()
+				end
+				if folder["1"].LeftGlove:FindFirstChild("SurfaceAppearance") then
+					folder["1"].LeftGlove.SurfaceAppearance:Destroy()
+				end
+
+				reference.SurfaceAppearance:Clone().Parent = folder["1"].RightGlove
+				reference.SurfaceAppearance:Clone().Parent = folder["1"].LeftGlove
+
+				if character.RightHand.Transparency == 1 then
+					if character.Accessories:FindFirstChild("RightGlove") and character.Accessories.RightGlove.Transparency == 1 then
+						folder["1"].RightGlove.Transparency = 0
+						folder["1"].LeftGlove.Transparency = 0
+					elseif character.Accessories:FindFirstChild("RightGlove") and character.Accessories.RightGlove.Transparency == 0 then
+						folder["1"].RightGlove.Transparency = 1
+						folder["1"].LeftGlove.Transparency = 1
+					else
+						folder["1"].RightGlove.Transparency = 0
+						folder["1"].LeftGlove.Transparency = 0
+					end
+				else
+					folder["1"].RightGlove.Transparency = 1
+					folder["1"].LeftGlove.Transparency = 1
+				end
+
+			elseif tonumber(reference.GloveType.Value) == 2 then
+				folder["1"].RightGlove.Transparency = 1
+				folder["1"].LeftGlove.Transparency = 1
+
+				if folder["2"].RightGlove:FindFirstChild("SurfaceAppearance") then
+					folder["2"].RightGlove.SurfaceAppearance:Destroy()
+				end
+				if folder["2"].LeftGlove:FindFirstChild("SurfaceAppearance") then
+					folder["2"].LeftGlove.SurfaceAppearance:Destroy()
+				end
+
+				reference.SurfaceAppearance:Clone().Parent = folder["2"].RightGlove
+				reference.SurfaceAppearance:Clone().Parent = folder["2"].LeftGlove
+
+				if character.RightHand.Transparency == 1 then
+					if character.Accessories:FindFirstChild("RightGlove") and character.Accessories.RightGlove.Transparency == 1 then
+						folder["2"].RightGlove.Transparency = 0
+						folder["2"].LeftGlove.Transparency = 0
+					elseif character.Accessories:FindFirstChild("RightGlove") and character.Accessories.RightGlove.Transparency == 0 then
+						folder["2"].RightGlove.Transparency = 1
+						folder["2"].LeftGlove.Transparency = 1
+					else
+						folder["2"].RightGlove.Transparency = 0
+						folder["2"].LeftGlove.Transparency = 0
+					end
+				else
+					folder["2"].RightGlove.Transparency = 1
+					folder["2"].LeftGlove.Transparency = 1
+				end
+			end
+		end
+
+		local function characterAdded(player, character)
+			while not character:FindFirstChild("Humanoid") and not character:FindFirstChild("Head") do
+				task.wait()
+			end
+
+			while not _G._services.ReplicatedStorage.network.Profiles:FindFirstChild(tostring(player.UserId)) do
+				task.wait()
+			end
+
+			local appearanceModel = nil
+
+			local success, errorMessage = pcall(function()
+				appearanceModel = _G._services.Players:GetCharacterAppearanceAsync(player.UserId)
+			end)
+
+			if not success then
+				warn(string.format("AppearanceInitializer | error while loading character appearance of user %s, retrying appearance loading (%s)", tostring(player.UserId), errorMessage))
+
+				local newSuccess, newErrorMessage = pcall(function()
+					appearanceModel = _G._services.Players:GetCharacterAppearanceAsync(player.UserId)
+				end)
+
+				if not newSuccess then
+					warn(string.format("AppearanceInitializer | appearance loading retry failed for user %s (%s)", tostring(player.UserId), newErrorMessage))
+				end
+			else
+				warn(string.format("AppearanceInitializer | loaded character appearance of user %s", tostring(player.UserId)))
+			end
+
+			while not character:FindFirstChild("Humanoid") do
+				task.wait()
+			end
+
+			local humanoid = character:WaitForChild("Humanoid", 100)
+			local rootPart = character:WaitForChild("HumanoidRootPart", 100)
+			local ball = character:WaitForChild("Ball", 100)
+			local rightBoot = character:WaitForChild("RightBoot", 100)
+			local leftBoot = character:WaitForChild("LeftBoot", 100)
+			local leftUpperArm = character:WaitForChild("LeftUpperArm", 100)
+			local part = character:WaitForChild("Jersey", 100)
+			local weld = part:WaitForChild("Weld", 100)
+			local offsetData = part:WaitForChild("OffsetData")
+			local jersey = part:WaitForChild("jersey", 100)
+			local layeredShirt = character:WaitForChild("LayeredShirt", 100)
+			local handle = layeredShirt:WaitForChild("Handle", 100)
+			local localMaid = maid.new()
+			local profile = _G._services.ReplicatedStorage.network.Profiles:WaitForChild(tostring(player.UserId), 100)
+
+			if ragdolls[player.Name] then
+				ragdolls[player.Name]:init(character)
+			end
+
+			if balls[player] then
+				balls[player]:DoCleaning()
+				balls[player] = localMaid
+			end
+
+			if (config.Weather.Value == "Rain" or config.Weather.Value == "Snow") and character.Head:FindFirstChild("Air") then
+				character.Head.Air.ParticleEmitter.Enabled = true
+			elseif config.Weather.Value ~= "Rain" and config.Weather.Value ~= "Snow" and character.Head:FindFirstChild("Air") then
+				character.Head.Air.ParticleEmitter.Enabled = false
+			end
+
+			if boots:FindFirstChild(profile.inventory.Current.Boots.Value) then
+				for _,v in next, rightBoot:GetChildren() do
+					if v and v:IsA("SurfaceAppearance") then
+						v:Destroy()
+					end
+				end
+
+				for _,v in next, leftBoot:GetChildren() do
+					if v and v:IsA("SurfaceAppearance") then
+						v:Destroy()
+					end
+				end
+
+				rightBoot.TextureID = boots[profile.inventory.Current.Boots.Value].TextureID
+				leftBoot.TextureID = boots[profile.inventory.Current.Boots.Value].TextureID
+
+				if boots[profile.inventory.Current.Boots.Value]:FindFirstChild("SurfaceAppearance") then
+					boots[profile.inventory.Current.Boots.Value].SurfaceAppearance:Clone().Parent = rightBoot
+					boots[profile.inventory.Current.Boots.Value].SurfaceAppearance:Clone().Parent = leftBoot
+				end
+			end
+
+			if (_G._references.Main.captains:FindFirstChild("home") and _G._references.Main.captains.home.Value == player.Name) or (_G._references.Main.captains:FindFirstChild("away") and _G._references.Main.captains.away.Value == player.Name) then
+				local armband = _G._references.Main.storage.Captain:Clone()
+				armband.Parent = character
+				armband.Weld.Part1 = leftUpperArm
+			end
+
+			if gloves:FindFirstChild(profile.inventory.Current.Gloves.Value) then
+				updateGloves(profile, gloves, character)
+			end
+
+			loadBallDesign(ball)
+			loadKit(player)
+			updateAccessories(profile, character)
+
+			for index = 1, 3 do
+				localMaid["accessory " .. tostring(index)] = profile.inventory.Current["Accessory " .. tostring(index)].Changed:Connect(function()
+					updateAccessories(profile, character)
+				end)
+			end
+
+			jersey.name.Text = string.upper(player.Name)
+			jersey.number.Text = tostring(profile.stats.Number.Value)
+
+			if handle.Transparency == 1 then
+				weld.C0 = offsetData.Classic.Value
+			else
+				weld.C0 = offsetData.Layered.Value
+			end
+
+			--[[  Anti Infinite Jump  ]]---------------------------------------------------------------------------------------------------
+
+			local maxJumps = 7
+			local timeFrame = 2.5
+			local playerJumps = {}
+
+			localMaid["jumping"] = humanoid.Jumping:Connect(function()
+				if not playerJumps[player] then
+					playerJumps[player] = {count = 0, time = tick()}
+				end
+
+				local playerData = playerJumps[player]
+				local currentTime = tick()
+
+				if (currentTime - playerData.time) > timeFrame then
+					playerData.count = 0
+					playerData.time = currentTime
+				end
+
+				playerData.count = playerData.count + 1
+
+				if playerData.count > maxJumps then
+					player:Kick("RF GUARD | Infinite Jump Detected")
+				end
+			end)
+
+			------------------------------------------------------------------------------------------------------------------------------
+
+			localMaid["layeredShirtChanged"] = handle:GetPropertyChangedSignal("Transparency"):Connect(function()
+				if handle.Transparency == 1 then
+					weld.C0 = offsetData.Classic.Value
+				else
+					weld.C0 = offsetData.Layered.Value
+				end
+			end)
+
+			--[[localMaid["walkSpeedChanged"] = humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+				if humanoid.WalkSpeed > 22 then
+					local profile = _G._references.Profiles:WaitForChild(tostring(player.UserId), 100)
+					local reason = "DataModel Tampering"
+
+					if profile then
+						profile.stats.Reason.Value = reason
+					end
+
+					_G._references.RemoteEvent:FireClient(player, "kick", reason)
+					teleporter:start(player, 14480394650)
+				end
+			end)]]
+
+			localMaid["jerseyNumber"] = profile.stats.Number.Changed:Connect(function()
+				jersey.number.Text = tostring(profile.stats.Number.Value)
+			end)
+
+			localMaid["captainAdded"] = _G._references.Main.captains.ChildAdded:Connect(function(object)
+				if object and object.Value == player.Name and not character:FindFirstChild("Captain") then
+					local armband = _G._references.Main.storage.Captain:Clone()
+					armband.Parent = character
+					armband.Weld.Part1 = leftUpperArm
+				end
+			end)
+
+			localMaid["captainRemoved"] = _G._references.Main.captains.ChildRemoved:Connect(function(object)
+				if object and object.Value == player.Name and character:FindFirstChild("Captain") then
+					character.Captain:Destroy()
+				end
+			end)
+
+			localMaid["boots"] = profile.inventory.Current.Boots.Changed:Connect(function()
+				for _,v in next, rightBoot:GetChildren() do
+					if v and v:IsA("SurfaceAppearance") then
+						v:Destroy()
+					end
+				end
+
+				for _,v in next, leftBoot:GetChildren() do
+					if v and v:IsA("SurfaceAppearance") then
+						v:Destroy()
+					end
+				end
+
+				rightBoot.TextureID = boots[profile.inventory.Current.Boots.Value].TextureID
+				leftBoot.TextureID = boots[profile.inventory.Current.Boots.Value].TextureID
+
+				if boots[profile.inventory.Current.Boots.Value]:FindFirstChild("SurfaceAppearance") then
+					boots[profile.inventory.Current.Boots.Value].SurfaceAppearance:Clone().Parent = rightBoot
+					boots[profile.inventory.Current.Boots.Value].SurfaceAppearance:Clone().Parent = leftBoot
+				end
+			end)
+
+			localMaid["gloves"] = profile.inventory.Current.Gloves.Changed:Connect(function()
+				updateGloves(profile, gloves, character)
+			end)
+
+			localMaid["ballDesign"] = config.Ball.Changed:Connect(function()
+				loadBallDesign(ball)
+			end)
+
+			localMaid["airEffect"] = config.Weather.Changed:Connect(function()
+				if (config.Weather.Value == "Rain" or config.Weather.Value == "Snow") and character.Head:FindFirstChild("Air") then
+					character.Head.Air.ParticleEmitter.Enabled = true
+				elseif config.Weather.Value ~= "Rain" and config.Weather.Value ~= "Snow" and character.Head:FindFirstChild("Air") then
+					character.Head.Air.ParticleEmitter.Enabled = false
+				end
+			end)
+
+			localMaid["homeKit"] = config.Stats.Home["Team"].Changed:Connect(function()
+				loadKit(player)
+			end)
+
+			localMaid["homeKitType"] = config.Stats.Home["Kit Type"].Changed:Connect(function()
+				loadKit(player)
+			end)
+
+			localMaid["awayKit"] = config.Stats.Away["Team"].Changed:Connect(function()
+				loadKit(player)
+			end)
+
+			localMaid["awayKitType"] = config.Stats.Away["Kit Type"].Changed:Connect(function()
+				loadKit(player)
+			end)
+
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+			humanoid:SetStateEnabled(Enum.HumanoidStateType.GettingUp, false)
+
+			if appearanceModel then
+				for _,v in next, appearanceModel:GetChildren() do
+					if v:IsA("Accessory") and not v:FindFirstChildWhichIsA("WrapLayer", true) and not v:FindFirstChild("BodyBackAttachment", true) and not v:FindFirstChild("WaistBackAttachment", true) then
+						v.Parent = character
+					elseif v:IsA("BodyColors") then
+						character["Body Colors"]:Destroy()
+						v.Parent = character
+					elseif v:IsA("Decal") and v.Name == "face" then
+						character.Head.face.Texture = v.Texture
+					end
+				end
+			end
+		end
+
+		local function groupCheck(player)
+			for _, groupId in next, blacklist.groups do
+				local success, isInGroup, groupInfo
+
+				success, isInGroup = pcall(function()
+					return player:IsInGroup(groupId)
+				end)
+
+				if not success then
+					success, isInGroup = pcall(function()
+						return player:IsInGroup(groupId)
+					end)
+				end
+
+				if isInGroup then
+					local playerGui = player:WaitForChild("PlayerGui", 100)
+					local screenGui = script:WaitForChild("freeze", 100)
+
+					screenGui:Clone().Parent = playerGui
+					teleporter:start(player, 14480454827)
+
+					task.delay(20, function()
+						if player and player.Parent then
+							player:Kick()
+						end
+					end)
+
+					return
+				end
+			end
+		end
+
+		local function playerAdded(player)
+			local localMaid = maid.new()
+			local success, response = false, "User not found in server!"
+
+			--if not _G._services.RunService:IsStudio() then
+			--	success, response = pcall(function()
+			--		return _G._services.HttpService:GetAsync(string.format("http://ultra.daki.cc:4120/server-check?userid=%s", tostring(player.UserId)))
+			--	end)
+
+			--	if not success then
+			--		success, response = pcall(function()
+			--			return _G._services.HttpService:GetAsync(string.format("http://ultra.daki.cc:4120/server-check?userid=%s", tostring(player.UserId)))
+			--		end)
+			--	end
+
+			--	if not success then
+			--		response = "User not found in server!"
+			--	end
+			--end
+
+			if not table.find(whitelist, player.UserId) and response == "User not found in server!" and not _G._services.RunService:IsStudio() and game.PlaceId == 15690159367 then
+				player:Kick("ACCESS DENIED // Currently in development")
+				return
+			end
+
+			if table.find(blacklist.users, player.UserId) then
+				local playerGui = player:WaitForChild("PlayerGui", 100)
+				local screenGui = script:WaitForChild("freeze", 100)
+
+				screenGui:Clone().Parent = playerGui
+				teleporter:start(player, 14480454827)
+
+				task.delay(20, function()
+					if player and player.Parent then
+						player:Kick()
+					end
+				end)
+
+				return
+			end
+
+			if not table.find(whitelist, player.UserId) then
+				groupCheck(player)
+			end
+
+			task.spawn(function()
+				network:plrAdded(player)
+				profiles._playerAdded(player)
+			end)
+
+			while not _G._references.Network.Profiles:FindFirstChild(tostring(player.UserId)) do
+				task.wait()
+			end
+
+			local profile = _G._references.Network.Profiles:WaitForChild(tostring(player.UserId), 100)
+			local playerGui = player:WaitForChild("PlayerGui", 100)
+			local start = tick()
+
+			if (not player:GetAttribute("loaded") or not playerGui:FindFirstChild("bootstrapper")) and not game:GetService("RunService"):IsStudio() then
+				script.init:Clone().Parent = playerGui
+			end
+
+			while not profile:GetAttribute("Loaded") and tick() - start < 2 do
+				task.wait()
+			end
+
+			dailyObjectives[player.Name] = objectives.new(player)
+			dailyObjectives[player.Name]:init()
+
+			local objectValue = Instance.new("ObjectValue", _G._references.Main.event)
+			objectValue.Name = player.Name
+			objectValue.Value = player
+
+			local silvers = 0
+			local shines = 0
+
+			for index = 1, 3 do
+				local badge = badgeService._badges["Quest " .. tostring(index)]
+				if badgeService:hasBadge(player, badge) then
+					silvers += 1
+					objectValue:SetAttribute("quest" .. tostring(index), true)
+				end
+			end
+
+			for index = 1, 5 do
+				local badge = badgeService._badges["Item " .. tostring(index)]
+				if badgeService:hasBadge(player, badge) then
+					shines += 1
+				end
+			end
+
+			objectValue:SetAttribute("silvers", silvers)
+			objectValue:SetAttribute("shines", shines)
+
+			localMaid:GiveTask(objectValue)
+
+			local leaderstats = Instance.new("Folder")
+			leaderstats.Name = "leaderstats"
+			leaderstats.Parent = player
+
+			local leaderstatsPing = Instance.new("StringValue")
+			leaderstatsPing.Name = "Ping"
+			leaderstatsPing.Parent = leaderstats
+
+			local playerPing = Instance.new("IntValue", player)
+			playerPing.Name = "Ping"
+			playerPing:SetAttribute("IsLagging", false)
+			playerPing:SetAttribute("Turn", false)
+			playerPing:SetAttribute("LagSession", "")
+
+			if player.MembershipType == Enum.MembershipType.Premium then
+				player:SetAttribute("hasRobloxPremium", true)
+			end
+
+			task.spawn(function()
+				local subscriptionStatus = subscriptionService:getSubscriptionStatus(player, _G._subscriptionId)
+				if subscriptionStatus and subscriptionStatus.IsSubscribed then
+					local lastRenewal = tonumber(profile.stats.LastRenewal.Value)
+
+					if lastRenewal ~= 0 and tick() - lastRenewal >= 2592000 then
+						profile.stats.LastRenewal.Value = tostring(tick())
+						profile.stats.Cash.Value += 1000
+					end
+
+					player:SetAttribute("hasRFPremium", true)
+				end
+			end)
+
+			if profile.stats.Reason.Value ~= "" and player.UserId ~= 434036932 then
+				local playerGui = player:WaitForChild("PlayerGui", 100)
+				local screenGui = script:WaitForChild("freeze", 100)
+
+				screenGui:Clone().Parent = playerGui
+				teleporter:start(player, 14480394650)
+			end
+
+			if profile.stats["Game Banned"].Value ~= "" and tick() - tonumber(profile.stats["Game Banned"].Value) < 0 and not _G._services.RunService:IsStudio() then
+				local playerGui = player:WaitForChild("PlayerGui", 100)
+				local screenGui = script:WaitForChild("freeze", 100)
+
+				screenGui:Clone().Parent = playerGui
+				teleporter:start(player, 14480394650)
+			else
+				profile.stats["Game Banned"].Value = ""
+			end
+
+			task.spawn(function()
+				local function getRegion()
+					local region = "GB"
+					local success
+
+					success, region = pcall(function()
+						return _G._services.LocalizationService:GetCountryRegionForPlayerAsync(player)
+					end)
+
+					if not success then
+						getRegion()
+					else
+						if player.UserId == 446994904 then
+							local regionValue = Instance.new("StringValue", player)
+							regionValue.Name = "Region"
+							regionValue.Value = "DE"
+						elseif player.UserId == 2679165528 then
+							local regionValue = Instance.new("StringValue", player)
+							regionValue.Name = "Region"
+							regionValue.Value = "HU"
+						else
+							local regionValue = Instance.new("StringValue", player)
+							regionValue.Name = "Region"
+							regionValue.Value = region
+							profile.settings.LocalRegion.Value = region
+
+							--if profile.settings.LocalRegion.Value ~= profile.settings.LocalRegion.DefaultValue.Value and region ~= profile.settings.LocalRegion.Value and not _G._services.RunService:IsStudio() then
+							--	local playerGui = player:WaitForChild("PlayerGui", 100)
+							--	local screenGui = script:WaitForChild("freeze", 100)
+
+							--	screenGui:Clone().Parent = playerGui
+
+							--	task.delay(1, function()
+							--		player:Kick("RF GUARD // A new login location has been detected. If the issue persists, please report it via the community server.")
+							--	end)
+							--else
+							--	if not _G._services.RunService:IsStudio() then
+							--		profile.settings.LocalRegion.Value = region
+							--		print(string.format("[Players] Region set for %s (%s)", player.Name, region))
+							--	end
+							--end
+						end
+					end
+				end
+
+				getRegion()
+			end)
+
+			players[player.Name] = player
+			ragdolls[player.Name] = ragdoll.new(player)
+
+			if player.Character and player.Character.Parent then
+				characterAdded(player, player.Character)
+			end
+
+			if _G._useReplicators then
+				for _, ball in next, workspace.game.balls.server:GetChildren() do
+					if ball and ball.Parent then
+						task.spawn(function()
+							local newMaid = maid.new()
+
+							local replicator = _G._references.Main.storage.replicator:Clone()
+							replicator.Name = tostring(player.UserId)
+							replicator.Parent = workspace.game.replication
+
+							while not replicator:CanSetNetworkOwnership() do
+								task.wait()
+							end
+
+							replicator:SetNetworkOwner(player)
+							newMaid:GiveTask(replicator)
+							localMaid:GiveTask(replicator)
+
+							local reference = replicator:WaitForChild("reference", 100)
+							if reference then
+								reference.Value = ball
+							end
+
+							newMaid["childRemoved"] = workspace.game.balls.server.ChildRemoved:Connect(function(part)
+								if part == ball then
+									newMaid:DoCleaning()
+								end
+							end)
+						end)
+					end
+				end
+			end
+
+			--[[localMaid["clientHandshake"] = task.spawn(function()
+				
+				handshakeData[player.Name] = {
+					flags = 0,
+					inStore = false,
+				}
+				
+				while true do
+					task.wait(10)
+					local success = pcall(function()
+						local cipher = _G._services.HttpService:GenerateGUID(false)
+						local response = _G._services.HttpService:JSONDecode(network:fetch(player, "handshake", cipher))
+
+						handshakeData[player.Name].inStore = false
+						local overlapParams = OverlapParams.new()
+						overlapParams.FilterType = Enum.RaycastFilterType.Include
+						overlapParams.FilterDescendantsInstances = {player.Character}
+
+						for _, part in next, workspace:GetPartBoundsInBox(workspace.game.regions.store.CFrame, workspace.game.regions.store.Size, overlapParams) do
+							if part and part.Parent then
+								handshakeData[player.Name].inStore = true
+								break
+							end
+						end
+
+						if response.WalkSpeed > 22 then
+							local reason = "WalkSpeed Tampering"
+							if profile and player:IsDescendantOf(_G._services.Players) == true then
+								_G._references.RemoteEvent:FireClient(player, "kick", reason)
+								ban(player, reason)
+							end
+						end
+
+						for i, limb in pairs(response.limbSizes) do
+							for k, originalLimb in pairs(originalLimbSizes) do
+								if i == k then
+									if (string.sub(tostring(limb[1]), 1,4) > string.sub(tostring(originalLimb[1]), 1,4)) or (string.sub(tostring(limb[2]), 1,4) > string.sub(tostring(originalLimb[2]), 1,4)) or (string.sub(tostring(limb[3]), 1,4) > string.sub(tostring(originalLimb[3]), 1,4)) then
+										if handshakeData[player.Name].inStore == false then
+											local reason = "Hitbox Tampering"
+											if profile and player:IsDescendantOf(_G._services.Players) == true then
+												_G._references.RemoteEvent:FireClient(player, "kick", reason)
+												ban(player, reason)
+											end
+										end
+									end
+								end
+							end
+						end
+
+						if cipher ~= response.key then
+							local reason = "Handshake Tampering Detected"
+							if profile and player:IsDescendantOf(_G._services.Players) == true then
+								_G._references.RemoteEvent:FireClient(player, "kick", reason)
+								ban(player, reason)
+							end
+						end
+						
+						if handshakeData[player.Name].flags > 0 then
+							handshakeData[player.Name].flags -= 1
+						end
+					end)
+
+					if not success then
+						handshakeData[player.Name].flags += 1
+						if handshakeData[player.Name].flags >= 7 then
+							local reason = "Handshake Disconnection Detected"
+							if profile and player:IsDescendantOf(_G._services.Players) == true then
+								_G._references.RemoteEvent:FireClient(player, "kick", reason)
+								ban(player, reason)
+							end
+						end
+						break
+					end
+				end
+			end)]]
+
+			localMaid["xpChanged"] = profile.level.XP.Changed:Connect(function()
+				if profile.level.XP.Value >= profile.level.XPNeeded.Value and profile.level.Level.Value < _G._levelCap then
+					profile.level.PreviousXPNeeded.Value = profile.level.XPNeeded.Value
+					profile.level.Level.Value += 1
+					profile.level.XPNeeded.Value = math.ceil(profile.level.Level.Value * 100 + (math.log(math.floor(profile.level.Level.Value)) * 150))
+					_G._references.RemoteEvent:FireClient(player, "levelUp", profile.level.Level.Value)
+
+					if player.Character and player.Character:FindFirstChild("BillboardGui") and player.Character.BillboardGui:FindFirstChild("Container") and player.Character.BillboardGui.Container:FindFirstChildWhichIsA("TextLabel") then
+						player.Character.BillboardGui.Container:FindFirstChildWhichIsA("TextLabel").Text = string.format("[%s] %s", tostring(profile.level.Level.Value), player.Name)
+					end
+				end
+			end)
+
+			localMaid["teamChanged"] = player:GetPropertyChangedSignal("Team"):Connect(function()
+				loadKit(player)
+			end)
+
+			localMaid["characterAdded"] = player.CharacterAdded:Connect(function(character)
+				characterAdded(player, character)
+			end)
+
+			localMaid["chatted"] = player.Chatted:Connect(function(message)
+				if message and string.lower(message) == "rtp" and not _G._references.Main.config.Override:FindFirstChild("RTP") then
+					local initialCFrame = player.Character.PrimaryPart.CFrame
+
+					player:LoadCharacter()
+
+					while not player.Character.PrimaryPart do
+						task.wait()
+					end
+
+					local teleport = Instance.new("BoolValue", player)
+					teleport.Name = "Teleport"
+					teleport.Value = true
+					_G._services.Debris:AddItem(teleport, 3)
+
+					player.Character.PrimaryPart.CFrame = initialCFrame
+				elseif message and string.find(string.lower(message), ":votekick") then
+					local plr = message:split(" ")[2]
+
+					for _,v in next, _G._services.Players:GetPlayers() do
+						if plr and v and string.lower(v.Name:sub(1, #plr)) == plr then
+							voteKick:start({
+								_playerFrom = player,
+								_playerTo = v
+							})
+						end
+					end
+				elseif message and string.find(string.lower(message), ":votefix") then
+					voteFix:start({
+						_playerFrom = player
+					})
+				end
+			end)
+
+			connections[player.Name] = localMaid
+		end
+
+		overhead.OnAdded:Connect(function(overheadGui)
+			if overheadGui.Player then
+				local player = overheadGui.Player
+				local tag = overheadGui:GetTag("Username")
+				local localMaid = maid.new()
+
+				local function updateTag()
+					if tag and player.Team and string.find(player.Team.Name, "Home") then
+						tag.TextColor3 = teamService:getTeamColorFromTeam("Home")
+					elseif tag and player.Team and string.find(player.Team.Name, "Away") then
+						tag.TextColor3 = teamService:getTeamColorFromTeam("Away")
+					elseif tag then
+						tag.TextColor3 = player.TeamColor.Color
+					end
+				end
+
+				updateTag()
+
+				localMaid["propertyChangedSignal"] = player:GetPropertyChangedSignal("Team"):Connect(updateTag)
+				localMaid["homeTeamChanged"] = config.Stats.Home.Team.Changed:Connect(updateTag)
+				localMaid["homeKitTypeChanged"] = config.Stats.Home["Kit Type"].Changed:Connect(updateTag)
+				localMaid["awayTeamChanged"] = config.Stats.Away.Team.Changed:Connect(updateTag)
+				localMaid["awayKitTypeChanged"] = config.Stats.Away["Kit Type"].Changed:Connect(updateTag)
+
+				localMaid["characterAdded"] = player.CharacterAdded:Connect(function()
+					localMaid:DoCleaning()
+				end)
+			end
+		end)
+
+		for _, player : player in next, _G._services.Players:GetPlayers() do
+			if player then
+				task.spawn(function()
+					playerAdded(player)
+				end)
+			end
+		end
+
+		_G._services.Players.PlayerAdded:Connect(function(player : player)
+			if not players[player.Name] then
+				task.spawn(function()
+					playerAdded(player)
+				end)
+			end
+		end)
+
+		_G._services.Players.PlayerRemoving:Connect(function(player : player)
+			if players[player.Name] then
+				players[player.Name] = nil
+			end
+
+			if connections[player.Name] then
+				connections[player.Name]:DoCleaning()
+				connections[player.Name] = nil
+			end
+
+			for _, spawner in next, workspace.game.balls.spawns:GetChildren() do
+				if spawner and spawner:FindFirstChild("possessor") and spawner.possessor.Value == player.UserId then
+					for _, ball in next, workspace.game.balls.server:GetChildren() do
+						if ball and (ball:GetAttribute("possessor") == player.UserId or ball:GetAttribute("networkOwner") == player.UserId or ball:GetAttribute("lastTouch") == player.UserId or ball:GetAttribute("lastPass") == player.UserId) then
+							ball:SetAttribute("possessor", 0)
+							ball:SetAttribute("networkOwner", 0)
+							ball:SetAttribute("lastTouch", 0)
+							ball:SetAttribute("lastPass", 0)
+							ball:SetNetworkOwner(nil)
+						end 
+					end
+				end
+			end
+
+			if ragdolls[player.Name] then
+				ragdolls[player.Name]._maid:DoCleaning()
+			end
+
+			if dailyObjectives[player.Name] then
+				dailyObjectives[player.Name]:clear()
+				dailyObjectives[player.Name] = nil
+			end
+
+			task.spawn(function()
+				network:plrRemoving(player)
+				profiles._playerRemoved(player)
+			end)
+		end)
+
+		game:BindToClose(function()
+			for _, player in next, _G._services.Players:GetPlayers() do
+				if player then
+					if players[player.Name] then
+						players[player.Name] = nil
+					end
+
+					if connections[player.Name] then
+						connections[player.Name]:DoCleaning()
+						connections[player.Name] = nil
+					end
+
+					for _, spawner in next, workspace.game.balls.spawns:GetChildren() do
+						if spawner and spawner:FindFirstChild("possessor") and spawner.possessor.Value == player.UserId then
+							for _, ball in next, workspace.game.balls.server:GetChildren() do
+								if ball and (ball:GetAttribute("possessor") == player.UserId or ball:GetAttribute("networkOwner") == player.UserId or ball:GetAttribute("lastTouch") == player.UserId or ball:GetAttribute("lastPass") == player.UserId) then
+									ball:SetAttribute("possessor", 0)
+									ball:SetAttribute("networkOwner", 0)
+									ball:SetAttribute("lastTouch", 0)
+									ball:SetAttribute("lastPass", 0)
+									ball:SetNetworkOwner(nil)
+								end 
+							end
+						end
+					end
+
+					if ragdolls[player.Name] then
+						ragdolls[player.Name]._maid:DoCleaning()
+					end
+
+					if dailyObjectives[player.Name] then
+						dailyObjectives[player.Name]:clear()
+						dailyObjectives[player.Name] = nil
+					end
+
+					task.spawn(function()
+						network:plrRemoving(player)
+						profiles._playerRemoved(player)
+					end)
+				end
+			end
+		end)
+
+		--[[  Anti Cheat  ]]----------------------------------------------------------------------------
+
+		local cache = {}
+
+		task.spawn(function()
+			while true do
+				task.wait(6)
+				for index, data in next, handshakeData do
+					if not _G._services.Players:FindFirstChild(index) then
+						handshakeData[index] = nil
+					end
+				end
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and _G._references.Network.Profiles:FindFirstChild(tostring(player.UserId)):GetAttribute("Loaded") then
+						if not handshakeData[player.Name] then
+							handshakeData[player.Name] = {
+								flags = 0,
+								banFlags = 0,
+								inStore = false,
+								cipher = nil
+							}
+						end
+						local success = pcall(function()
+							handshakeData[player.Name].cipher = _G._services.HttpService:GenerateGUID(false)
+							local response
+							task.spawn(function()
+								response = _G._services.HttpService:JSONDecode(network:fetch(player, "handshake", handshakeData[player.Name].cipher))
+							end)
+							for i = 1, 6 do
+								if response then
+									break
+								end
+								task.wait(1)
+							end
+
+							if not response then
+								handshakeData[player.Name].flags += 2
+								if handshakeData[player.Name].flags > 10 then
+									if player:IsDescendantOf(_G._services.Players) == true then
+										player:Kick("Handshake Disconnection: Rejoin")
+									end
+								end
+							end
+
+							handshakeData[player.Name].inStore = false
+							local overlapParams = OverlapParams.new()
+							overlapParams.FilterType = Enum.RaycastFilterType.Include
+							overlapParams.FilterDescendantsInstances = {player.Character}
+
+							for _, part in next, workspace:GetPartBoundsInBox(workspace.game.regions.store.CFrame, workspace.game.regions.store.Size, overlapParams) do
+								if part and part.Parent then
+									handshakeData[player.Name].inStore = true
+									break
+								end
+							end
+
+							if type(response.WalkSpeed) ~= "number" then
+								if player:IsDescendantOf(_G._services.Players) == true then
+									player:Kick("Handshake Disconnection: Rejoin")
+								end
+							end
+							if response.WalkSpeed > 22 then
+								local reason = "WalkSpeed Tampering"
+								if player:IsDescendantOf(_G._services.Players) == true then
+									_G._references.RemoteEvent:FireClient(player, "kick", reason)
+									ban(player, reason)
+								end
+							end
+
+							local limbsChecked = 0
+							if type(response.limbSizes) ~= "table" then
+								handshakeData[player.Name].banFlags += 2
+								if handshakeData[player.Name].banFlags >= 5 then
+									local reason = "Hitbox Check Failed"
+									if player:IsDescendantOf(_G._services.Players) == true then
+										_G._references.RemoteEvent:FireClient(player, "kick", reason)
+										ban(player, reason)
+									end
+								end
+							end
+							for i, limb in pairs(response.limbSizes) do
+								for k, originalLimb in pairs(originalLimbSizes) do
+									if i == k then
+										if (string.sub(tostring(limb[1]), 1,4) > string.sub(tostring(originalLimb[1]), 1,4)) or (string.sub(tostring(limb[2]), 1,4) > string.sub(tostring(originalLimb[2]), 1,4)) or (string.sub(tostring(limb[3]), 1,4) > string.sub(tostring(originalLimb[3]), 1,4)) then
+											if handshakeData[player.Name].inStore == false then
+												local reason = "Hitbox Tampering"
+												if player:IsDescendantOf(_G._services.Players) == true then
+													_G._references.RemoteEvent:FireClient(player, "kick", reason)
+													ban(player, reason)
+												end
+											end
+										else
+											limbsChecked += 1
+										end
+									end
+								end
+							end
+
+							if limbsChecked ~= 21 then
+								handshakeData[player.Name].banFlags += 2
+								if handshakeData[player.Name].banFlags >= 5 then
+									local reason = "Hitbox Check Failed"
+									if player:IsDescendantOf(_G._services.Players) == true then
+										_G._references.RemoteEvent:FireClient(player, "kick", reason)
+										ban(player, reason)
+									end
+								end
+							end
+
+							if handshakeData[player.Name].cipher ~= response.key then
+								local reason = "Handshake Tampering"
+								if player:IsDescendantOf(_G._services.Players) == true then
+									_G._references.RemoteEvent:FireClient(player, "kick", reason)
+									ban(player, reason)
+								end
+							end
+
+							if handshakeData[player.Name].flags > 0 then
+								handshakeData[player.Name].flags -= 1
+							end
+							if handshakeData[player.Name].banFlags > 0 then
+								handshakeData[player.Name].banFlags -= 1
+							end
+						end)
+
+						if not success then
+							handshakeData[player.Name].flags += 1
+							if handshakeData[player.Name].flags > 10 then
+								if player:IsDescendantOf(_G._services.Players) == true then
+									player:Kick("Handshake Disconnection: Rejoin")
+								end
+							end
+						end
+					end
+				end
+			end
+		end)
+
+		task.spawn(function()
+			while true do
+				for index, data in next, cache do
+					if not _G._services.Players:FindFirstChild(index) then
+						cache[index] = nil
+					end
+				end
+
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and _G._references.Main.config.AutoSystem.Value then
+						local rootPart = player.Character:WaitForChild("HumanoidRootPart", 100)
+
+						if rootPart and rootPart.Parent then
+							if not cache[player.Name] then
+								cache[player.Name] = {
+									position = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z),
+									Yposition = Vector3.new(0, rootPart.Position.Y, 0),
+									rootPart = rootPart,
+									flags = 0,
+									inStore = false
+								}
+							end
+
+							local overlapParams = OverlapParams.new()
+							overlapParams.FilterType = Enum.RaycastFilterType.Include
+							overlapParams.FilterDescendantsInstances = {player.Character}
+
+							for _, part in next, workspace:GetPartBoundsInBox(workspace.game.regions.store.CFrame, workspace.game.regions.store.Size, overlapParams) do
+								if part and part.Parent then
+									cache[player.Name].inStore = true
+									break
+								end
+							end
+
+							local difference = (Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z) - cache[player.Name].position).Magnitude
+							local Ydifference = (Vector3.new(0, rootPart.Position.Y, 0) - cache[player.Name].Yposition).Magnitude
+
+							if (difference > 24 and difference <= 30) and not player:FindFirstChild("Teleport") and cache[player.Name].rootPart == rootPart and cache[player.Name].inStore == false then
+								cache[player.Name].flags += 1
+								--player.Character:SetPrimaryPartCFrame(CFrame.new(cache[player.Name].position))
+								cache[player.Name] = {
+									position = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z),
+									Yposition = Vector3.new(0, rootPart.Position.Y, 0),
+									rootPart = rootPart,
+									flags = cache[player.Name].flags,
+									inStore = false
+								}
+							elseif (difference > 30 or Ydifference > 10) and not player:FindFirstChild("Teleport") and cache[player.Name].rootPart == rootPart and cache[player.Name].inStore == false then
+								cache[player.Name].flags += 2
+								--[[local teleport = Instance.new("BoolValue", player)
+								teleport.Name = "Teleport"
+								teleport.Value = true
+								_G._services.Debris:AddItem(teleport, 0.015)]]
+								player.Character:SetPrimaryPartCFrame(CFrame.new(cache[player.Name].position))
+								cache[player.Name] = {
+									position = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z),
+									Yposition = Vector3.new(0, rootPart.Position.Y, 0),
+									rootPart = rootPart,
+									flags = cache[player.Name].flags,
+									inStore = false
+								}
+							else
+								if cache[player.Name].flags > 0 then
+									cache[player.Name].flags -= 1
+								end
+
+								cache[player.Name] = {
+									position = Vector3.new(rootPart.Position.X, 0, rootPart.Position.Z),
+									Yposition = Vector3.new(0, rootPart.Position.Y, 0),
+									rootPart = rootPart,
+									flags = cache[player.Name].flags,
+									inStore = false
+								}
+							end
+
+							if cache[player.Name].flags >= 7 then
+								player:Kick("RF GUARD // Anti Teleport Check: Stop Cheating or Check Your Internet Connection")
+								cache[player.Name] = nil
+							end
+						end
+					elseif player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and not _G._references.Main.config.AutoSystem.Value and cache[player.Name] then
+						cache[player.Name] = nil
+					end
+				end
+
+				task.wait(1)
+			end
+		end)
+
+		-- Setting up original limb sizes
+		task.spawn(function()
+			for i, limb in pairs(_G._services.StarterPlayer.StarterCharacter:GetChildren()) do
+				if limb:IsA("BasePart") then
+					for i, v in pairs(limbs) do
+						if string.match(limb.Name, v) then
+							local dictionaryVector = {limb.Size.X, limb.Size.Y, limb.Size.Z}
+							originalLimbSizes[limb.Name] = dictionaryVector
+						end
+					end
+				end
+			end
+		end)
+	end,
+}
