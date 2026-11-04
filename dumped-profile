@@ -1,0 +1,1431 @@
+-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw
+
+-- https://sitetest1.lua.expert
+
+local v1 = {
+    _replicatedStorage = game:GetService("ReplicatedStorage"),
+    _serverStorage = game:GetService("ServerStorage"),
+    _players = game:GetService("Players")
+}
+
+v1._engine = require(v1._replicatedStorage.engine)
+v1._references = v1._engine.References
+v1._services = v1._engine.Services
+v1._profiles = require(script.profiles)
+v1._service = require(script.service)
+v1._testers = v1._engine:load("Whitelist", "utils")
+v1._maids = {}
+v1._maid = v1._engine:load("Maid")
+v1._saveAttempts = {}
+v1._whitelist = v1._engine:load("GamePassWhitelist", "utils")
+v1._colourableAccessories = v1._engine:load("ColourableAccessories", "utils")
+
+local v2 = v1._references.Main:WaitForChild("animations", 100)
+
+v1._assetFolders = {
+    accessories = v1._references.Main:WaitForChild("accessories", 100),
+    boots = v1._references.Main:WaitForChild("boots", 100),
+    gloves = v1._references.Main:WaitForChild("gloves", 100),
+    ballHolds = v2:WaitForChild("Ball", 100),
+    celebrations = v2:WaitForChild("Celebrations", 100)
+}
+
+function v1._folderToDictionary(v3) -- line 30 | captures: v1
+    local next_2 = next
+    local v4, v5 = v3:GetChildren()
+    local v6 = {}
+    for v7, v8 in next_2, v4, v5 do
+        if v8:IsA("Folder") then
+            v6[v8.Name] = v1._folderToDictionary(v8)
+        elseif v8:IsA("ValueBase") or v8.ClassName:match("Value") then
+            if v8:IsA("Color3Value") then
+                local Name = v8.Name
+                local format = string.format
+                local R = v8.Value.R
+                local v9 = tostring(R)
+                local G = v8.Value.G
+                local v10 = tostring(G)
+                local B = v8.Value.B
+                v6[Name] = format("%s,%s,%s", v9, v10, (tostring(B)))
+            else
+                local Name = v8.Name
+                local Value = v8.Value
+                v6[Name] = tostring(Value)
+            end
+        end
+    end
+    return v6
+end
+
+v1._sample = script:WaitForChild("sample")
+
+local _sample = v1._sample
+local v11, v12
+
+if _sample then
+    local settings = _sample:FindFirstChild("settings")
+    if settings then
+        local Visual = settings:FindFirstChild("Visual")
+        if Visual then
+            v11 = Visual:FindFirstChild("Angle Bar")
+            if not v11 then
+                v11 = Instance.new("BoolValue")
+                v11.Name = "Angle Bar"
+                v11.Value = false
+                v11.Parent = Visual
+            end
+            v12 = false
+        else
+            v12 = true
+        end
+    else
+        v12 = true
+    end
+else
+    v12 = true
+end
+
+if not v12 then
+    local Category = v11:FindFirstChild("Category")
+    if not Category then
+        Category = Instance.new("StringValue")
+        Category.Name = "Category"
+        Category.Parent = v11
+    end
+    Category.Value = "gameplay"
+end
+local _sample_2 = v1._sample
+
+if _sample_2 then
+    local settings = _sample_2:FindFirstChild("settings")
+    if settings then
+        local Visual = settings:FindFirstChild("Visual")
+        if Visual and not Visual:FindFirstChild("Sprint FOV") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Sprint FOV"
+            BoolValue.Value = true
+            local StringValue = Instance.new("StringValue")
+            StringValue.Name = "Category"
+            StringValue.Value = "Visual"
+            StringValue.Parent = BoolValue
+            BoolValue.Parent = Visual
+        end
+    end
+end
+v1._template = v1._folderToDictionary(v1._sample)
+
+if v1._template.inventory then
+    for v13, v14 in ipairs({ "Accessories", "Boots", "Gloves", "Ball Holds", "Celebrations" }) do
+        if v1._template.inventory[v14] then
+            for v15 in pairs(v1._template.inventory[v14]) do
+                v1._template.inventory[v14][v15] = "false"
+            end
+        end
+    end
+end
+local v16 = {
+    Dribble = "ButtonY",
+    Kick = "ButtonB",
+    ["Lob Pass"] = "ButtonX",
+    ["Tap Right"] = "ButtonR2",
+    ["Tap Left"] = "ButtonL2",
+    Header = "ButtonR1",
+    ["Chest Control"] = "ButtonL1",
+    Catch = "ButtonY",
+    Clear = "ButtonB",
+    Throw = "ButtonX",
+    ["Low Dive"] = "ButtonR1",
+    ["High Dive"] = "ButtonR2",
+    Punch = "ButtonL2",
+    Reflex = "ButtonL1",
+    ["Mouse Lock"] = "ButtonL3",
+    Sprint = "DPadLeft",
+    ["Switch Foot"] = "DPadDown",
+    ["Ball Camera"] = "DPadRight",
+    ["Switch Mode"] = "DPadUp"
+}
+local v17 = {
+    Pass = { "Pass", "Lob Pass", "Side Pass Right", "Side Pass Left", "Backheel Pass" },
+    Kick = { "Kick", "Finesse", "Header", "Driven", "Rabona" },
+    Skills = { "Ball Roll", "Left Step Over", "Right Step Over", "Fake", "Roulette" },
+    Tackle = { "Tackle", "Slide Tackle", "Low Tackle", "Chest Control", "Block" },
+    GK = { "Catch", "Clear", "Throw", "Low Dive", "High Dive" },
+    Dribble = { "Dribble", "Precision", "Tap Right", "Tap Left", "Flick Up" }
+}
+local v18 = {
+    Kick = {
+        "Kick",
+        "Driven",
+        "Power Shot",
+        "Header",
+        "Finesse",
+        "Volley",
+        "Rabona",
+        "Bicycle",
+        "Trivela",
+        "Scorpion",
+        "Diving Header",
+        "Scissor",
+        "Karate",
+        "Side Kick Right",
+        "Side Kick Left"
+    },
+    Dribble = {
+        "Dribble",
+        "Precision",
+        "Tap Right",
+        "Tap Left",
+        "Flick Up",
+        "Drag Back",
+        "Chop Right",
+        "Chop Left",
+        "Stop Ball"
+    },
+    Skills = {
+        "Ball Roll",
+        "Rainbow",
+        "Side Flick",
+        "Left Step Over",
+        "Right Step Over",
+        "Fake",
+        "Roulette",
+        "Neck Stall",
+        "Juggle",
+        "Front Sombrero",
+        "Back Sombrero",
+        "Back Heel Flick",
+        "Inner Around The World",
+        "Outer Around The World"
+    },
+    Pass = {
+        "Pass",
+        "Side Pass Right",
+        "Side Pass Left",
+        "Lob Pass",
+        "Lob Pass Right",
+        "Lob Pass Left",
+        "Backheel Pass",
+        "Pass Request",
+        "Chop Pass",
+        "Shoulder Pass"
+    },
+    Tackle = { "Tackle", "Slide Tackle", "Low Tackle", "Chest Control", "Block", "Chest Stop", "Straight Slide Tackle" },
+    GK = { "Clear", "Catch", "High Dive", "Low Dive", "Reflex", "Punch", "Throw", "Drop Ball" },
+    Misc = { "Mouse Lock", "Sprint", "Switch Foot", "Ball Camera", "Switch Mode", "Knuckle", "Backspin", "Topspin" }
+}
+
+local function getBindTemplateCategory(v19) -- line 166
+    if v19 == "Dribble" then
+        return "Skills"
+    end
+    return v19
+end
+
+local function isMobileVisibleByDefault(v20, v21) -- line 170 | captures: v17
+    local v22 = v17[v20]
+    if v22 then
+        return table.find(v22, v21) ~= nil
+    end
+    return false
+end
+
+local function ensureToolBindEntries(v23, v24, v25, v26) -- line 181 | captures: v16, v17
+    if not v23 then
+        return
+    end
+    if not v23:FindFirstChild(v24) then
+        local StringValue = Instance.new("StringValue")
+        StringValue.Name = v24
+        StringValue.Value = ""
+        StringValue.Parent = v23
+        StringValue:SetAttribute("key", v26)
+    end
+    local v27 = v24 .. " (Gamepad)"
+    if not v23:FindFirstChild(v27) then
+        local StringValue = Instance.new("StringValue")
+        StringValue.Name = v27
+        StringValue.Value = v16[v24] or ""
+        StringValue.Parent = v23
+        StringValue:SetAttribute("key", v26)
+    end
+    local v28 = v24 .. " (Mobile)"
+    if v23:FindFirstChild(v28) then
+        return
+    end
+    local BoolValue = Instance.new("BoolValue")
+    BoolValue.Name = v28
+    local v29 = v17[v25]
+    if v29 then
+        BoolValue.Value = table.find(v29, v24) ~= nil
+    else
+        BoolValue.Value = false
+    end
+    BoolValue.Parent = v23
+    BoolValue:SetAttribute("key", v26)
+end
+
+local function normalizeMobileVisibilityValues(v30) -- line 225
+    if v30 then
+        for v31, v32 in v30:GetChildren() do
+            for v33, v34 in v32:GetChildren() do
+                if v34.Name:find("%(Mobile%)$") and v34:IsA("StringValue") then
+                    local v35 = v34.Value == "true"
+                    local BoolValue = Instance.new("BoolValue")
+                    BoolValue.Name = v34.Name
+                    BoolValue.Value = v35
+                    BoolValue:SetAttribute("key", v34:GetAttribute("key"))
+                    BoolValue.Parent = v32
+                    v34:Destroy()
+                end
+            end
+        end
+    end
+end
+
+if not v1._template.PinSelections then
+    v1._template.PinSelections = {}
+end
+
+if not v1._template.PinSelections.SelectedPin then
+    v1._template.PinSelections.SelectedPin = ""
+end
+
+if not v1._template.PinSelections.ClubPin then
+    v1._template.PinSelections.ClubPin = ""
+end
+
+if v1._template.stats then
+    v1._template.stats.Cash = "0"
+end
+
+if v1._template.level then
+    v1._template.level.Level = "1"
+    v1._template.level.XP = "0"
+    v1._template.level.PreviousXPNeeded = "0"
+    v1._template.level.XPNeeded = "100"
+end
+
+if v1._template.binds then
+    for v36, v37 in pairs(v18) do
+        local v38 = if v36 == "Dribble" then "Skills" else v36
+        if v1._template.binds[v38] then
+            for v39, v40 in pairs(v37) do
+                local v41 = v40 .. " (Gamepad)"
+                if not v1._template.binds[v38][v41] then
+                    v1._template.binds[v38][v41] = v16[v40] or ""
+                end
+            end
+        end
+    end
+    for v42, v43 in pairs(v18) do
+        local v44 = if v42 == "Dribble" then "Skills" else v42
+        if v1._template.binds[v44] then
+            for v45, v46 in pairs(v43) do
+                local v47 = v46 .. " (Mobile)"
+                if not v1._template.binds[v44][v47] then
+                    local v48 = v1._template.binds[v44]
+                    local v49 = v17[v42]
+                    if v49 and table.find(v49, v46) ~= nil then
+                        v48[v47] = "true"
+                    else
+                        v48[v47] = "false"
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function isValidCosmeticSelection(v50, v51, v52) -- line 308
+    if not v51 or v51 == "" then
+        return v52 == true
+    end
+    if v52 and (v51 == "None" or v51 == "RF Premium") then
+        return true
+    end
+    return v50 and v50:FindFirstChild(v51) ~= nil
+end
+
+local function findOwnedFallback(v53, v54, v55) -- line 324
+    if v53 then
+        for v56, v57 in ipairs(v53:GetChildren()) do
+            if v57:IsA("BoolValue") and v57.Value then
+                local Name = v57.Name
+                local v58
+                if Name then
+                    if Name == "" then
+                        v58 = v55 == true
+                    elseif v55 and (Name == "None" or Name == "RF Premium") then
+                        v58 = true
+                    else
+                        v58 = v54 and v54:FindFirstChild(Name) ~= nil
+                    end
+                else
+                    v58 = v55 == true
+                end
+                if v58 then
+                    return v57.Name
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function ensureEquippedValue(v59, v60, v61, v62, v63) -- line 355 | captures: findOwnedFallback
+    if not v60 then
+        return
+    end
+    local Value = v60.Value
+    local v64
+    if not Value or Value == "" then
+        v64 = v63 == true
+    elseif v63 and (Value == "None" or Value == "RF Premium") then
+        v64 = true
+    else
+        v64 = v62 and v62:FindFirstChild(Value) ~= nil
+    end
+    if v64 then
+        return
+    end
+    local Value_2
+    if v60:FindFirstChild("DefaultValue") then
+        local Value = v60.DefaultValue.Value
+        local v65
+        if Value then
+            if Value == "" then
+                v65 = v63 == true
+            elseif v63 and (Value == "None" or Value == "RF Premium") then
+                v65 = true
+            else
+                v65 = v62 and v62:FindFirstChild(Value) ~= nil
+            end
+        else
+            v65 = v63 == true
+        end
+        if v65 then
+            Value_2 = v60.DefaultValue.Value
+        end
+    end
+    local v66 = Value_2 or findOwnedFallback(v61, v62, v63)
+    local v67, v68, v69, v70
+    if v66 then
+        v69 = v66
+        v70 = true
+    elseif v62 then
+        v67 = v62:GetChildren()
+        if v67[1] then
+            local Name = v67[1].Name
+            if Name then
+                if Name == "" then
+                    v68 = v63 == true
+                elseif v63 and (Name == "None" or Name == "RF Premium") then
+                    v68 = true
+                else
+                    v68 = v62:FindFirstChild(Name) ~= nil
+                end
+            else
+                v68 = v63 == true
+            end
+            v70 = false
+        else
+            v69 = v66
+            v70 = true
+        end
+    else
+        v69 = v66
+        v70 = true
+    end
+    if not v70 then
+        if v68 then
+            v69 = v67[1].Name
+        else
+            v69 = v66
+        end
+    end
+    if v63 and not v69 then
+        v69 = "None"
+    end
+    if v69 then
+        local warn_2 = warn
+        local format = string.format
+        local Name = v60.Name
+        local Value = v60.Value
+        warn_2(format("[Profiles] Resetting invalid %s '%s' for %s -> '%s'", Name, tostring(Value), v59.Name, v69))
+        v60.Value = v69
+    else
+        local warn_2 = warn
+        local format = string.format
+        local Name = v60.Name
+        local Value = v60.Value
+        warn_2(format("[Profiles] Invalid %s '%s' for %s with no fallback available", Name, tostring(Value), v59.Name))
+        v60.Value = ""
+    end
+end
+
+local function ensureEquippedCosmetics(v71, v72) -- line 440 | captures: v1, ensureEquippedValue
+    if v72 then
+        local inventory = v72:FindFirstChild("inventory")
+        if inventory then
+            local Current = inventory:FindFirstChild("Current")
+            if Current then
+                ensureEquippedValue(v71, Current:FindFirstChild("Gloves"), inventory:FindFirstChild("Gloves"), v1._assetFolders.gloves, false)
+                ensureEquippedValue(v71, Current:FindFirstChild("Boots"), inventory:FindFirstChild("Boots"), v1._assetFolders.boots, false)
+                for v73 = 1, 3 do
+                    ensureEquippedValue(v71, Current:FindFirstChild("Accessory " .. tostring(v73)), inventory:FindFirstChild("Accessories"), v1._assetFolders.accessories, true)
+                end
+                ensureEquippedValue(v71, Current:FindFirstChild("Ball Hold") or Current:FindFirstChild("Ball Holds"), inventory:FindFirstChild("Ball Holds"), v1._assetFolders.ballHolds, false)
+            end
+        end
+    end
+end
+
+local function sanitizeOwnedFolder(v74, v75, v76, v77, v78) -- line 468
+    if v76 and v77 then
+        for v79, v80 in ipairs(v76:GetChildren()) do
+            if v80:IsA("BoolValue") and v80.Value then
+                local Name = v80.Name
+                local v81
+                if Name then
+                    if Name == "" then
+                        v81 = v78 == true
+                    elseif v78 and (Name == "None" or Name == "RF Premium") then
+                        v81 = true
+                    else
+                        v81 = v77 and v77:FindFirstChild(Name) ~= nil
+                    end
+                else
+                    v81 = v78 == true
+                end
+                if not v81 then
+                    warn(string.format("[Profiles] Removing invalid %s item '%s' from %s", v75, v80.Name, v74.Name))
+                    v80:Destroy()
+                end
+            end
+        end
+    end
+end
+
+local function sanitizeInventory(v82, v83) -- line 498 | captures: v1, sanitizeOwnedFolder
+    if not v83 then
+        return
+    end
+    sanitizeOwnedFolder(v82, "Accessories", v83:FindFirstChild("Accessories"), v1._assetFolders.accessories, false)
+    sanitizeOwnedFolder(v82, "Boots", v83:FindFirstChild("Boots"), v1._assetFolders.boots, false)
+    sanitizeOwnedFolder(v82, "Gloves", v83:FindFirstChild("Gloves"), v1._assetFolders.gloves, false)
+    sanitizeOwnedFolder(v82, "Ball Holds", v83:FindFirstChild("Ball Holds"), v1._assetFolders.ballHolds, false)
+    sanitizeOwnedFolder(v82, "Celebrations", v83:FindFirstChild("Celebrations"), v1._assetFolders.celebrations, false)
+end
+
+v1._storage = v1._service.GetProfileStore("RF24StatsUserData", v1._template)
+
+local function onLoadFailure(v84, v85, v86) -- line 513 | captures: v1
+    if v85 then
+        v85:Release()
+    end
+    if v1._profiles[v84] then
+        v1._profiles[v84] = nil
+    end
+    if v86 then
+        v86:Destroy()
+    end
+    if v84 and v84.Parent then
+        v84:Kick("An unexpected error occured while loading")
+    end
+end
+
+function v1._load(v87, v88) -- line 532 | captures: v1, v18, ensureToolBindEntries, normalizeMobileVisibilityValues, ensureEquippedCosmetics, sanitizeInventory
+    print("[PROFILES DEBUG] _load function called for player:", v87.Name)
+    if not v1._profiles[v87] then
+        v88:SetAttribute("Loaded", false)
+        print(string.format("[Profiles] Data failed to load for %s", v87.Name))
+        local v89 = v1._profiles[v87]
+        if v89 then
+            v89:Release()
+        end
+        if v1._profiles[v87] then
+            v1._profiles[v87] = nil
+        end
+        if v88 then
+            v88:Destroy()
+        end
+        if v87 and v87.Parent then
+            v87:Kick("An unexpected error occured while loading")
+        end
+    else
+        print("[PROFILES DEBUG] Profile found for player:", v87.Name)
+        local v90 = v1._profiles[v87]
+        print("[PROFILES DEBUG] Dictionary type:", (type(v90)))
+        print("[PROFILES DEBUG] Dictionary exists:", v90 ~= nil)
+        local load
+
+        local function load_2(v91, v92) -- line 565 | captures: load, v1
+            if v91 then
+                for v93, v94 in next, v92 do
+                    if type(v94) == "table" then
+                        local v95 = v91:FindFirstChild(v93)
+                        if not v95 then
+                            v95 = Instance.new("Folder")
+                            v95.Name = v93
+                            v95.Parent = v91
+                        end
+                        load(v95, v94)
+                    elseif v91:FindFirstChild(v93) then
+                        local v96 = v91[v93]
+                        if v96.Name == v93 and (v96:IsA("ValueBase") or v96.ClassName:match("Value")) then
+                            v96:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+                            if v96:IsA("Color3Value") then
+                                if type(v94) == "string" and string.find(v94, ",") then
+                                    local new = Color3.new
+                                    local v97 = v94:split(",")[1]
+                                    local v98 = tonumber(v97)
+                                    local v99 = v94:split(",")[2]
+                                    local v100 = tonumber(v99)
+                                    local v101 = v94:split(",")[3]
+                                    v96.Value = new(v98, v100, (tonumber(v101)))
+                                else
+                                    v96.Value = Color3.new(1, 1, 1)
+                                end
+                            elseif v96:IsA("BoolValue") then
+                                if type(v94) == "boolean" then
+                                    v96.Value = v94
+                                elseif v94 == "true" then
+                                    v96.Value = true
+                                else
+                                    v96.Value = false
+                                end
+                            else
+                                v96.Value = v94
+                            end
+                        end
+                    else
+                        local v102
+                        if type(v94) == "boolean" or v94 == "true" or v94 == "false" then
+                            v102 = "BoolValue"
+                        elseif type(v94) == "string" and string.find(v94, ",") then
+                            v102 = "Color3Value"
+                        else
+                            v102 = "StringValue"
+                        end
+                        local v103 = Instance.new(v102)
+                        if v93 == "Tshbalala" then
+                            v103.Name = "Tshabalala"
+                        else
+                            v103.Name = v93
+                        end
+                        v103:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+                        if type(v94) == "boolean" then
+                            v103.Value = v94
+                        elseif v94 == "true" then
+                            v103.Value = true
+                        elseif v94 == "false" then
+                            v103.Value = false
+                        elseif type(v94) == "string" and string.find(v94, ",") then
+                            local new = Color3.new
+                            local v104 = v94:split(",")[1]
+                            local v105 = tonumber(v104)
+                            local v106 = v94:split(",")[2]
+                            local v107 = tonumber(v106)
+                            local v108 = v94:split(",")[3]
+                            v103.Value = new(v105, v107, (tonumber(v108)))
+                        else
+                            v103.Value = v94
+                        end
+                        v103.Parent = v91
+                    end
+                end
+            end
+        end
+
+        load = load_2
+        v1._colourableAccessories.ensureColourValues(v88)
+        load_2(v88, v90.Data)
+        for v109, v110 in next, { "Accessories", "Boots", "Gloves", "Ball Holds", "Celebrations" } do
+            local v111
+            if v110 == "Celebrations" then
+                v111 = v1._references.Main.animations:WaitForChild(v110, 100)
+            elseif v110 == "Ball Holds" then
+                v111 = v1._references.Main.animations:WaitForChild("Ball", 100)
+            else
+                v111 = v1._references.Main:WaitForChild(string.lower(v110), 100)
+            end
+            local next_2 = next
+            local v112, v113 = v111:GetChildren()
+            for v114, v115 in next_2, v112, v113 do
+                if v88.inventory:FindFirstChild(v110) and game.PlaceId ~= 15690159367 then
+                    if table.find(v1._whitelist, v87.UserId) then
+                        if v115 and not v88.inventory[v110]:FindFirstChild(v115.Name) then
+                            local BoolValue = Instance.new("BoolValue")
+                            BoolValue.Name = v115.Name
+                            BoolValue.Value = true
+                            BoolValue.Parent = v88.inventory[v110]
+                            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+                        end
+                    elseif v115:FindFirstChild("Exclusive") and v115.Exclusive.Value == v87.UserId and v115 and not v88.inventory[v110]:FindFirstChild(v115.Name) then
+                        local BoolValue = Instance.new("BoolValue")
+                        BoolValue.Name = v115.Name
+                        BoolValue.Value = true
+                        BoolValue.Parent = v88.inventory[v110]
+                        BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+                    end
+                end
+            end
+        end
+        if v88.binds then
+            local realKey = v1._references.Main.config.Key:GetAttribute("realKey")
+            for v116, v117 in pairs(v18) do
+                local binds = v88.binds
+                local v118 = if v116 == "Dribble" then "Skills" else v116
+                local v119 = binds:FindFirstChild(v118)
+                for v120, v121 in ipairs(v117) do
+                    ensureToolBindEntries(v119, v121, v116, realKey)
+                end
+            end
+            normalizeMobileVisibilityValues(v88.binds)
+        end
+        if table.find(v1._testers, v87.UserId) and not v88.inventory.Boots:FindFirstChild("RF Tester") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "RF Tester"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Boots
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87:GetRankInGroup(33613424) >= 251 and not v88.inventory.Celebrations:FindFirstChild("Strange Dance") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Strange Dance"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "erovzn" and not v88.inventory.Celebrations:FindFirstChild("67") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "67"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "OkMushy" and not v88.inventory.Celebrations:FindFirstChild("67") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "67"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "OkMushy" and not v88.inventory.Celebrations:FindFirstChild("What Happened") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "What Happened"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "OkMushy" and not v88.inventory.Celebrations:FindFirstChild("Slide Stare") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Slide Stare"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "Zqchill" and not v88.inventory.Celebrations:FindFirstChild("Slide Stare") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Slide Stare"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "OkMushy" and not v88.inventory.Celebrations:FindFirstChild("Arm Shuffle") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Arm Shuffle"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "Zqchill" and not v88.inventory.Celebrations:FindFirstChild("What Happened") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "What Happened"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "ekIltike" and not v88.inventory.Celebrations:FindFirstChild("What Happened") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "What Happened"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "greezyNBA" and not v88.inventory.Celebrations:FindFirstChild("Surfing") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Surfing"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "ihkira" and not v88.inventory.Boots:FindFirstChild("Mushee | Black & Pink") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Mushee | Black & Pink"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Boots
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87.Name == "OkMushy" and not v88.inventory.Boots:FindFirstChild("Mushee | Black & Pink") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Mushee | Black & Pink"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Boots
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+        end
+        if v87:IsInGroup(33613424) and not v88.inventory.Celebrations:FindFirstChild("Fisherman") then
+            local BoolValue = Instance.new("BoolValue")
+            BoolValue.Name = "Fisherman"
+            BoolValue.Value = true
+            BoolValue.Parent = v88.inventory.Celebrations
+            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+            print(string.format("[Profiles] Granted 'Fisherman' to %s for being in group 33613424", v87.Name))
+        end
+        local v122 = {
+            Accessories = v1._assetFolders.accessories,
+            Boots = v1._assetFolders.boots,
+            Gloves = v1._assetFolders.gloves,
+            ["Ball Holds"] = v1._assetFolders.ballHolds,
+            Celebrations = v1._assetFolders.celebrations
+        }
+        for v123, v124 in pairs(v122) do
+            local v125 = v88.inventory:FindFirstChild(v123)
+            if not v125 then
+                v125 = Instance.new("Folder")
+                v125.Name = v123
+                v125.Parent = v88.inventory
+            end
+            if v124 then
+                for v126, v127 in ipairs(v124:GetChildren()) do
+                    if v127.Name ~= "" and v127.Name ~= "None" then
+                        local v128 = v125:FindFirstChild(v127.Name)
+                        if v128 then
+                            if v128:IsA("BoolValue") then
+                                v128.Value = true
+                            end
+                        else
+                            local BoolValue = Instance.new("BoolValue")
+                            BoolValue.Name = v127.Name
+                            BoolValue.Value = true
+                            BoolValue.Parent = v125
+                            BoolValue:SetAttribute("key", v1._references.Main.config.Key:GetAttribute("realKey"))
+                        end
+                    end
+                end
+            end
+        end
+        sanitizeInventory(v87, v88.inventory)
+        ensureEquippedCosmetics(v87, v88)
+        v88.stats.Cash.Value = 0
+        if v88:FindFirstChild("level") then
+            v88.level.Level.Value = 1
+            v88.level.XP.Value = 0
+            v88.level.PreviousXPNeeded.Value = 0
+            v88.level.XPNeeded.Value = 100
+        end
+        print("[PIN DEBUG] Loading pin data for player:", v87.Name)
+        print("[PIN DEBUG] _dictionary exists:", v90 ~= nil)
+        local v129
+        if v90 then
+            print("[PIN DEBUG] _dictionary.Data exists:", v90.Data ~= nil)
+            if v90.Data then
+                print("[PIN DEBUG] _dictionary.Data.PinSelections exists:", v90.Data.PinSelections ~= nil)
+                local print_2 = print
+                local PinSelections = v90.Data.PinSelections
+                print_2("[PIN DEBUG] _dictionary.Data.PinSelections type:", (type(PinSelections)))
+                if v90.Data.PinSelections then
+                    print("[PIN DEBUG] _dictionary.Data.PinSelections.SelectedPin exists:", v90.Data.PinSelections.SelectedPin ~= nil)
+                    print("[PIN DEBUG] _dictionary.Data.PinSelections.SelectedPin value:", v90.Data.PinSelections.SelectedPin)
+                    local print_2 = print
+                    local SelectedPin = v90.Data.PinSelections.SelectedPin
+                    print_2("[PIN DEBUG] _dictionary.Data.PinSelections.SelectedPin type:", (type(SelectedPin)))
+                end
+            end
+            if v90.Data then
+                local PinSelections = v90.Data.PinSelections
+                v129 = type(PinSelections) == "table"
+            else
+                v129 = false
+            end
+        else
+            v129 = false
+        end
+        local SelectedPin
+        if v129 then
+            local SelectedPin_2 = v90.Data.PinSelections.SelectedPin
+            if type(SelectedPin_2) ~= "string" or v90.Data.PinSelections.SelectedPin == "" then
+                print("[PIN DEBUG] SelectedPin was empty string or not a string")
+                SelectedPin = ""
+            else
+                SelectedPin = v90.Data.PinSelections.SelectedPin
+                print("[PIN DEBUG] Setting selected_pin_name to:", SelectedPin)
+            end
+        else
+            print("[PIN DEBUG] PinSelections structure not found or not a table")
+            SelectedPin = ""
+        end
+        print("[PIN DEBUG] Final selected_pin_name:", SelectedPin)
+        v87:SetAttribute("SelectedPin", SelectedPin)
+        local v130
+        if v90 and v90.Data then
+            local PinSelections = v90.Data.PinSelections
+            if type(PinSelections) == "table" then
+                local ClubPin = v90.Data.PinSelections.ClubPin
+                if type(ClubPin) == "string" then
+                    if v90.Data.PinSelections.ClubPin == "" then
+                        v130 = ""
+                    else
+                        v130 = v90.Data.PinSelections.ClubPin
+                    end
+                else
+                    v130 = ""
+                end
+            else
+                v130 = ""
+            end
+        else
+            v130 = ""
+        end
+        v87:SetAttribute("ClubPin", v130)
+        print("[PIN DEBUG] Set SelectedPin attribute to:", SelectedPin)
+        v1._colourableAccessories.grantOwnedAccessories(v87, v88)
+        v88:SetAttribute("Loaded", true)
+        local print_2 = print
+        local format = string.format
+        local Name = v87.Name
+        local UserId = v87.UserId
+        print_2(format("[Profiles] Data successfully loaded for %s (%s)", Name, (tostring(UserId))))
+    end
+end
+
+function v1._playerAdded(v131) -- line 888 | captures: v1
+    local Profiles = v1._replicatedStorage.network.Profiles
+    local UserId = v131.UserId
+    local v132 = Profiles:FindFirstChild((tostring(UserId)))
+    if v1._profiles[v131] and v132 and v132:GetAttribute("Loaded") and v132:FindFirstChild("binds") and v132:FindFirstChild("settings") then
+        warn(string.format("[Profiles] Profile already active and loaded for %s, skipping re-init.", v131.Name))
+    else
+        local v133
+        if v1._profiles[v131] then
+            warn(string.format("[Profiles] Profile already exists for %s, cleaning up...", v131.Name))
+            if v1._profiles[v131].Release then
+                v1._profiles[v131]:Release()
+            end
+            v1._profiles[v131] = nil
+            v133 = true
+        else
+            v133 = false
+        end
+        if v132 then
+            warn(string.format("[Profiles] Data already exists for %s, preserving until new profile ready...", v131.Name))
+            v132:SetAttribute("Loaded", nil)
+        end
+        if v1._maids[v131.Name] then
+            v1._maids[v131.Name]:DoCleaning()
+            v1._maids[v131.Name] = nil
+        end
+        if v133 then
+            task.wait(0.1)
+        end
+        local v134 = v1._sample:Clone()
+        local v135, v136 = pcall(function() -- line 926 | captures: v131, v1
+            return v1._storage:LoadProfileAsync("user_" .. v131.UserId)
+        end)
+        if v135 then
+            local v137 = v1._maid.new()
+            v1._maids[v131.Name] = v137
+            if v132 and v132.Parent and v132 ~= v134 then
+                v132:Destroy()
+            end
+            v134.Parent = v1._replicatedStorage.network.Profiles
+            local UserId = v131.UserId
+            v134.Name = tostring(UserId)
+            local next_2 = next
+            local v138, v139 = v134:GetDescendants()
+            for v140, v141 in next_2, v138, v139 do
+                if (v141:IsA("StringValue") or v141:IsA("IntValue") or v141:IsA("BoolValue") or v141:IsA("Color3Value")) and v141.Name ~= "Min" and v141.Name ~= "Max" and v141.Name ~= "Load" then
+                    local v142 = Instance.new(v141.ClassName, v141)
+                    v142.Name = "DefaultValue"
+                    v142.Value = v141.Value
+                end
+            end
+            if v136 then
+                v136:AddUserId(v131.UserId)
+                v136:Reconcile()
+                v136:ListenToRelease(function() -- line 953 | captures: v131, v1
+                    v1._profiles[v131] = nil
+                    if v131 and v131.Parent then
+                        v131:Kick()
+                    end
+                end)
+                if v131:IsDescendantOf(v1._players) == true then
+                    v1._profiles[v131] = v136
+                    v1._load(v131, v134)
+                else
+                    v136:Release()
+                    if v1._profiles[v131] then
+                        v1._profiles[v131] = nil
+                    end
+                    if v134 then
+                        v134:Destroy()
+                    end
+                    if v131 and v131.Parent then
+                        v131:Kick("An unexpected error occured while loading")
+                    end
+                end
+            else
+                v131:Kick("An unexpected error occured while loading")
+            end
+            return "Data finished loading"
+        end
+        warn(string.format("[Profiles] Failed to load profile for %s: %s", v131.Name, (tostring(v136))))
+        v131:Kick("An unexpected error occured while loading")
+        v134:Destroy()
+    end
+end
+
+function v1._playerRemoved(v143) -- line 994 | captures: v1
+    if v1._maids[v143.Name] then
+        v1._maids[v143.Name]:DoCleaning()
+        v1._maids[v143.Name] = nil
+    end
+
+    local function saveProfile(v144, v145) -- line 1001 | captures: v1
+        if v145:GetAttribute("Loaded") then
+            for v146, v147 in pairs(v145.tools:GetChildren()) do
+                if v147.Value == 10 then
+                    v145.tools.KickSlot.Value = 1
+                    v145.tools.SkillsSlot.Value = 2
+                    v145.tools.TackleSlot.Value = 3
+                    v145.tools.PassSlot.Value = 4
+                    v145.tools.GKSlot.Value = 5
+                end
+            end
+            v1._profiles[v144].Data = v1._folderToDictionary(v145)
+            v1._profiles[v144]:Release()
+            v145:Destroy()
+            local print_2 = print
+            local format = string.format
+            local Name = v144.Name
+            local UserId = v144.UserId
+            print_2(format("[Profiles] Data successfully saved for %s (%s)", Name, (tostring(UserId))))
+        else
+            v1._saveAttempts[v144] = 0
+            while true do
+                local _saveAttempts = v1._saveAttempts
+                _saveAttempts[v144] += 1
+                task.wait(7)
+                if v145:GetAttribute("Loaded") then
+                    local Profiles = v1._replicatedStorage.network.Profiles
+                    local UserId = v144.UserId
+                    local v148 = Profiles:FindFirstChild((tostring(UserId)))
+                    v1._profiles[v144].Data = v1._folderToDictionary(v148)
+                    v1._profiles[v144]:Release()
+                    v148:Destroy()
+                    v1._saveAttempts[v144] = nil
+                    local print_2 = print
+                    local format = string.format
+                    local Name = v144.Name
+                    local UserId_2 = v144.UserId
+                    print_2(format("[Profiles] Data successfully saved for %s (%s)", Name, (tostring(UserId_2))))
+                    return
+                end
+                if v1._saveAttempts[v144] ~= 10 then
+                    continue
+                end
+                v1._saveAttempts[v144] = nil
+                if v1._profiles[v144] then
+                    v1._profiles[v144]:Release()
+                    local print_2 = print
+                    local format = string.format
+                    local Name = v144.Name
+                    local UserId = v144.UserId
+                    print_2(format("[Profiles] Data restored to last savepoint for %s (%s)", Name, (tostring(UserId))))
+                end
+                break
+            end
+            local Profiles = v1._replicatedStorage.network.Profiles
+            local UserId = v144.UserId
+            if Profiles:FindFirstChild((tostring(UserId))) then
+                local Profiles = v1._replicatedStorage.network.Profiles
+                local UserId = v144.UserId
+                Profiles:FindFirstChild((tostring(UserId))):Destroy()
+            end
+            local print_2 = print
+            local format = string.format
+            local Name = v144.Name
+            local UserId_2 = v144.UserId
+            print_2(format("[Profiles] Data failed to save for %s (%s)", Name, (tostring(UserId_2))))
+        end
+    end
+
+    if v1._profiles[v143] then
+        local Profiles = v1._replicatedStorage.network.Profiles
+        local UserId = v143.UserId
+        if Profiles:FindFirstChild((tostring(UserId))) then
+            local Profiles = v1._replicatedStorage.network.Profiles
+            local UserId = v143.UserId
+            saveProfile(v143, Profiles:FindFirstChild((tostring(UserId))))
+            return
+        end
+    end
+    v1._saveAttempts[v143] = 0
+    while true do
+        local _saveAttempts = v1._saveAttempts
+        _saveAttempts[v143] += 1
+        task.wait(7)
+        local v149 = v1._profiles[v143]
+        local v150
+        if v149 then
+            local Profiles = v1._replicatedStorage.network.Profiles
+            local UserId = v143.UserId
+            v150 = Profiles:FindFirstChild((tostring(UserId)))
+        end
+        if not v149 or not v150 then
+            if v1._saveAttempts[v143] ~= 10 then
+                continue
+            end
+            v1._saveAttempts[v143] = nil
+            if v1._profiles[v143] then
+                v1._profiles[v143]:Release()
+                local print_2 = print
+                local format = string.format
+                local Name = v143.Name
+                local UserId = v143.UserId
+                print_2(format("[Profiles] Data restored to last savepoint for %s (%s)", Name, (tostring(UserId))))
+            end
+            break
+        end
+        local Profiles = v1._replicatedStorage.network.Profiles
+        local UserId = v143.UserId
+        saveProfile(v143, Profiles:FindFirstChild((tostring(UserId))))
+        return
+    end
+    local Profiles = v1._replicatedStorage.network.Profiles
+    local UserId = v143.UserId
+    if Profiles:FindFirstChild((tostring(UserId))) then
+        local Profiles = v1._replicatedStorage.network.Profiles
+        local UserId = v143.UserId
+        Profiles:FindFirstChild((tostring(UserId))):Destroy()
+    end
+    local print_2 = print
+    local format = string.format
+    local Name = v143.Name
+    local UserId_2 = v143.UserId
+    print_2(format("[Profiles] Data failed to save for %s (%s)", Name, (tostring(UserId_2))))
+end
+
+function v1._updatePoints(v151, v152) -- line 1097 | captures: v1
+    if v1._references.Profiles:FindFirstChild((tostring(v151))) then
+        local Cash = v1._references.Profiles:WaitForChild(tostring(v151), 100).stats.Cash
+        Cash.Value += v152
+        local next_2 = next
+        local v153, v154 = v1._services.Players:GetPlayers()
+        for v155, v156 in next_2, v153, v154 do
+            if v156 and v156.UserId == v151 then
+                v156:Kick()
+            end
+        end
+    else
+        local v157 = v1._sample:Clone()
+        local v158 = v1._storage:LoadProfileAsync("user_" .. v151)
+        v157.Parent = game.ReplicatedStorage
+        if v158 then
+            v158:AddUserId(v151)
+            v158:Reconcile()
+        end
+
+        local function u132(v159, v160) -- line 1123 | captures: u132
+            for v161, v162 in next, v160 do
+                if type(v162) == "table" then
+                    local v163 = v159:FindFirstChild(v161)
+                    if not v163 then
+                        v163 = Instance.new("Folder")
+                        v163.Name = v161
+                        v163.Parent = v159
+                    end
+                    u132(v163, v162)
+                elseif v159:FindFirstChild(v161) then
+                    local v164 = v159[v161]
+                    if v164.Name == v161 and (v164:IsA("ValueBase") or v164.ClassName:match("Value")) then
+                        if v164:IsA("Color3Value") then
+                            if type(v162) == "string" and string.find(v162, ",") then
+                                local new = Color3.new
+                                local v165 = v162:split(",")[1]
+                                local v166 = tonumber(v165)
+                                local v167 = v162:split(",")[2]
+                                local v168 = tonumber(v167)
+                                local v169 = v162:split(",")[3]
+                                v164.Value = new(v166, v168, (tonumber(v169)))
+                            else
+                                v164.Value = Color3.new(1, 1, 1)
+                            end
+                        elseif v164:IsA("BoolValue") then
+                            if type(v162) == "boolean" then
+                                v164.Value = v162
+                            elseif v162 == "true" then
+                                v164.Value = true
+                            else
+                                v164.Value = false
+                            end
+                        else
+                            v164.Value = v162
+                        end
+                    end
+                else
+                    local v170
+                    if type(v162) == "boolean" or v162 == "true" or v162 == "false" then
+                        v170 = "BoolValue"
+                    elseif type(v162) == "string" and string.find(v162, ",") then
+                        v170 = "Color3Value"
+                    else
+                        v170 = "StringValue"
+                    end
+                    local v171 = Instance.new(v170)
+                    v171.Name = v161
+                    if type(v162) == "boolean" then
+                        v171.Value = v162
+                    elseif v162 == "true" then
+                        v171.Value = true
+                    elseif v162 == "false" then
+                        v171.Value = false
+                    elseif type(v162) == "string" and string.find(v162, ",") then
+                        local new = Color3.new
+                        local v172 = v162:split(",")[1]
+                        local v173 = tonumber(v172)
+                        local v174 = v162:split(",")[2]
+                        local v175 = tonumber(v174)
+                        local v176 = v162:split(",")[3]
+                        v171.Value = new(v173, v175, (tonumber(v176)))
+                    else
+                        v171.Value = v162
+                    end
+                    v171.Parent = v159
+                end
+            end
+        end
+
+        u132(v157, v158.Data)
+        local Cash = v157.stats.Cash
+        Cash.Value += v152
+        v158.Data = v1._folderToDictionary(v157)
+        v158:Release()
+        v157:Destroy()
+    end
+end
+
+local function _banPlayer(v177, v178) -- line 1198
+end
+
+v1._banPlayer = _banPlayer
+
+function v1._unbanPlayer(v179) -- line 1201 | captures: v1
+    if v1._references.Profiles:FindFirstChild((tostring(v179))) then
+        local v180 = v1._references.Profiles:WaitForChild(tostring(v179), 100)
+        v180.stats.Banned.Value = ""
+        v180.stats.Reason.Value = ""
+        v180.stats["Game Banned"].Value = ""
+        local next_2 = next
+        local v181, v182 = v1._services.Players:GetPlayers()
+        for v183, v184 in next_2, v181, v182 do
+            if v184 and v184.UserId == v179 then
+                v184:Kick()
+            end
+        end
+    else
+        local v185 = v1._sample:Clone()
+        local v186 = v1._storage:LoadProfileAsync("user_" .. v179)
+        v185.Parent = game.ReplicatedStorage
+        if v186 then
+            v186:AddUserId(v179)
+            v186:Reconcile()
+        end
+
+        local function u157(v187, v188) -- line 1229 | captures: u157
+            for v189, v190 in next, v188 do
+                if type(v190) == "table" then
+                    local v191 = v187:FindFirstChild(v189)
+                    if not v191 then
+                        v191 = Instance.new("Folder")
+                        v191.Name = v189
+                        v191.Parent = v187
+                    end
+                    u157(v191, v190)
+                elseif v187:FindFirstChild(v189) then
+                    local v192 = v187[v189]
+                    if v192.Name == v189 and (v192:IsA("ValueBase") or v192.ClassName:match("Value")) then
+                        if v192:IsA("Color3Value") then
+                            if type(v190) == "string" and string.find(v190, ",") then
+                                local new = Color3.new
+                                local v193 = v190:split(",")[1]
+                                local v194 = tonumber(v193)
+                                local v195 = v190:split(",")[2]
+                                local v196 = tonumber(v195)
+                                local v197 = v190:split(",")[3]
+                                v192.Value = new(v194, v196, (tonumber(v197)))
+                            else
+                                v192.Value = Color3.new(1, 1, 1)
+                            end
+                        elseif v192:IsA("BoolValue") then
+                            if type(v190) == "boolean" then
+                                v192.Value = v190
+                            elseif v190 == "true" then
+                                v192.Value = true
+                            else
+                                v192.Value = false
+                            end
+                        else
+                            v192.Value = v190
+                        end
+                    end
+                else
+                    local v198
+                    if type(v190) == "boolean" or v190 == "true" or v190 == "false" then
+                        v198 = "BoolValue"
+                    elseif type(v190) == "string" and string.find(v190, ",") then
+                        v198 = "Color3Value"
+                    else
+                        v198 = "StringValue"
+                    end
+                    local v199 = Instance.new(v198)
+                    v199.Name = v189
+                    if type(v190) == "boolean" then
+                        v199.Value = v190
+                    elseif v190 == "true" then
+                        v199.Value = true
+                    elseif v190 == "false" then
+                        v199.Value = false
+                    elseif type(v190) == "string" and string.find(v190, ",") then
+                        local new = Color3.new
+                        local v200 = v190:split(",")[1]
+                        local v201 = tonumber(v200)
+                        local v202 = v190:split(",")[2]
+                        local v203 = tonumber(v202)
+                        local v204 = v190:split(",")[3]
+                        v199.Value = new(v201, v203, (tonumber(v204)))
+                    else
+                        v199.Value = v190
+                    end
+                    v199.Parent = v187
+                end
+            end
+        end
+
+        u157(v185, v186.Data)
+        v185.stats.Banned.Value = ""
+        v185.stats.Reason.Value = ""
+        v185.stats["Game Banned"].Value = ""
+        v186.Data = v1._folderToDictionary(v185)
+        v186:Release()
+        v185:Destroy()
+    end
+end
+
+function v1._resetLayout(v205) -- line 1305 | captures: v1
+    if v1._references.Profiles:FindFirstChild((tostring(v205))) then
+        local v206 = v1._references.Profiles:WaitForChild(tostring(v205), 100)
+        v206.tools.KickSlot.Value = 1
+        v206.tools.SkillsSlot.Value = 2
+        v206.tools.TackleSlot.Value = 3
+        v206.tools.PassSlot.Value = 4
+        v206.tools.GKSlot.Value = 5
+        local next_2 = next
+        local v207, v208 = v1._services.Players:GetPlayers()
+        for v209, v210 in next_2, v207, v208 do
+            if v210 and v210.UserId == v205 then
+                v210:Kick()
+            end
+        end
+    else
+        local v211 = v1._sample:Clone()
+        local v212 = v1._storage:LoadProfileAsync("user_" .. v205)
+        v211.Parent = game.ReplicatedStorage
+        if v212 then
+            v212:AddUserId(v205)
+            v212:Reconcile()
+        end
+
+        local function u180(v213, v214) -- line 1335 | captures: u180
+            for v215, v216 in next, v214 do
+                if type(v216) == "table" then
+                    local v217 = v213:FindFirstChild(v215)
+                    if not v217 then
+                        v217 = Instance.new("Folder")
+                        v217.Name = v215
+                        v217.Parent = v213
+                    end
+                    u180(v217, v216)
+                elseif v213:FindFirstChild(v215) then
+                    local v218 = v213[v215]
+                    if v218.Name == v215 and (v218:IsA("ValueBase") or v218.ClassName:match("Value")) then
+                        if v218:IsA("Color3Value") then
+                            if type(v216) == "string" and string.find(v216, ",") then
+                                local new = Color3.new
+                                local v219 = v216:split(",")[1]
+                                local v220 = tonumber(v219)
+                                local v221 = v216:split(",")[2]
+                                local v222 = tonumber(v221)
+                                local v223 = v216:split(",")[3]
+                                v218.Value = new(v220, v222, (tonumber(v223)))
+                            else
+                                v218.Value = Color3.new(1, 1, 1)
+                            end
+                        elseif v218:IsA("BoolValue") then
+                            if type(v216) == "boolean" then
+                                v218.Value = v216
+                            elseif v216 == "true" then
+                                v218.Value = true
+                            else
+                                v218.Value = false
+                            end
+                        else
+                            v218.Value = v216
+                        end
+                    end
+                else
+                    local v224
+                    if type(v216) == "boolean" or v216 == "true" or v216 == "false" then
+                        v224 = "BoolValue"
+                    elseif type(v216) == "string" and string.find(v216, ",") then
+                        v224 = "Color3Value"
+                    else
+                        v224 = "StringValue"
+                    end
+                    local v225 = Instance.new(v224)
+                    v225.Name = v215
+                    if type(v216) == "boolean" then
+                        v225.Value = v216
+                    elseif v216 == "true" then
+                        v225.Value = true
+                    elseif v216 == "false" then
+                        v225.Value = false
+                    elseif type(v216) == "string" and string.find(v216, ",") then
+                        local new = Color3.new
+                        local v226 = v216:split(",")[1]
+                        local v227 = tonumber(v226)
+                        local v228 = v216:split(",")[2]
+                        local v229 = tonumber(v228)
+                        local v230 = v216:split(",")[3]
+                        v225.Value = new(v227, v229, (tonumber(v230)))
+                    else
+                        v225.Value = v216
+                    end
+                    v225.Parent = v213
+                end
+            end
+        end
+
+        u180(v211, v212.Data)
+        v211.tools.KickSlot.Value = 1
+        v211.tools.SkillsSlot.Value = 2
+        v211.tools.TackleSlot.Value = 3
+        v211.tools.PassSlot.Value = 4
+        v211.tools.GKSlot.Value = 5
+        v212.Data = v1._folderToDictionary(v211)
+        v212:Release()
+        v211:Destroy()
+    end
+end
+
+return v1
