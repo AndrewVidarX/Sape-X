@@ -1,0 +1,1796 @@
+--[[  Services  ]]------------------------------------------------------------------
+
+local root = _G._root
+local engine = _G._engine
+local references = engine.References
+local services = engine.Services
+
+local network = engine:load("Network").new()
+local sounds = engine:load("Sounds")
+local corner = engine:load("Corner")
+local penalty = engine:load("Penalty")
+local goalKick = engine:load("Goalkick")
+local freeKick = engine:load("Freekick")
+local throwIn = engine:load("ThrowIn")
+local walkout = engine:load("Walkout")
+local shootout = engine:load("Shootout")
+
+local lightningBolt = engine:load("LightningBolt")
+local lightningSparks = require(references.Classes.LightningBolt:WaitForChild("LightningSparks", 100))
+local lightningExplosion = require(references.Classes.LightningBolt:WaitForChild("LightningExplosion", 100))
+
+local teamService = engine:load("TeamService", "utils")
+local badgeService = engine:load("BadgeService", "utils")
+local thumbnailService = engine:load("ThumbnailService", "utils")
+local partToRegion3 = engine:load("PartToRegion3", "utils")
+local take = engine:load("Take")
+local ballUtil = engine:load("Balls")
+local maidClass = engine:load("Maid")
+local smartBone = engine:load("SmartBone")
+local notifications = engine:load("Notification").new()
+local maid = maidClass.new()
+
+local localPlayer = services.Players.LocalPlayer
+local mouse = localPlayer:GetMouse()
+local playerGui = references.PlayerGui
+
+local controllers = script.Parent
+local visuals = script.Parent.Parent:WaitForChild("visuals", 100)
+local mechanics = script.Parent.Parent:WaitForChild("mechanics", 100)
+local clientEngine = references.PlayerScripts:WaitForChild("ClientEngine", 100)
+
+local playerModule = localPlayer.PlayerScripts:WaitForChild("PlayerModule", 100)
+local mouseLockController = playerModule.CameraModule.MouseLockController
+local playerModuleScript = require(localPlayer.PlayerScripts:WaitForChild("PlayerModule"))
+
+local boundKeys = mouseLockController:WaitForChild("BoundKeys", 100)
+
+local teleportMaid = maidClass.new()
+local messageDebounce = false
+local levelUpDebounce = false
+local replayDebounce = false
+local goalDebounce = false
+local statsDebounce = false
+local soundDebounce = {}
+
+local freezeMovement = "freezeMovement"
+local takePrompts = {}
+
+local limbs = {"Head", "UpperTorso", "LowerTorso", "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperArm", "LeftLowerArm", "LeftHand", "RightUpperLeg", "RightLowerLeg", "RightFoot", "RightBoot", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot", "LeftBoot", "Collide", "Torso", "HumanoidRootPart"}
+
+local notificationPresets = {
+	["success"] = function(message)
+		if not soundDebounce.success then
+			references.Main.sounds.UI.Success:Play()
+			soundDebounce.success = true
+			task.delay(1, function()
+				soundDebounce.success = false
+			end)
+		end
+		
+		notifications:create(message, Color3.fromRGB(69, 255, 162))
+	end,
+	["error"] = function(message)
+		if not soundDebounce.error then
+			references.Main.sounds.UI.Error:Play()
+			soundDebounce.error = true
+			task.delay(1, function()
+				soundDebounce.error = false
+			end)
+		end
+		
+		notifications:create(message, Color3.fromRGB(255, 61, 61))
+	end,
+}
+
+local firstPersonController = controllers:WaitForChild("firstPersonController", 100)
+local movementController = controllers:WaitForChild("movementController", 100)
+local jukeboxController = require(controllers:WaitForChild("jukeboxController", 100))
+
+--[[  Functions  ]]------------------------------------------------------------------
+
+local function lerp(a, b, t)
+	return a + (b - a) * t
+end
+
+
+local function isTeammate(player, target)
+	if (player.Team and target.Team) and ((player.Team.Name == "Home" and target.Team.Name == "Home") or (player.Team.Name == "Home" and target.Team.Name == "-Home GK") or (player.Team.Name == "-Home GK" and target.Team.Name == "Home")  or (player.Team.Name == "Home" and target.Team.Name == "Home GK") or (player.Team.Name == "Home GK" and target.Team.Name == "Home") or (player.Team.Name == "Away" and target.Team.Name == "Away") or (player.Team.Name == "Away" and target.Team.Name == "-Away GK") or (player.Team.Name == "-Away GK" and target.Team.Name == "Away") or (player.Team.Name == "Away" and target.Team.Name == "Away GK") or (player.Team.Name == "Away GK" and target.Team.Name == "Away")) then
+		return true
+	else
+		return false
+	end
+end
+
+local function getClientBall(ball)
+	if ball and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") then
+		local spawnerFolder, clientFolder
+
+		for _, folder in next, ball.Parent.Parent:GetChildren() do
+			if services.CollectionService:HasTag(folder, "SpawnersFolder") then
+				spawnerFolder = folder
+			elseif services.CollectionService:HasTag(folder, "ClientBallsFolder") then
+				clientFolder = folder
+			end
+		end
+
+		if spawnerFolder and clientFolder then
+			for _, spawner in next, spawnerFolder:GetChildren() do
+				if spawner and ball.properties.spawner.Value == spawner then
+					for _, clientBall in next, clientFolder:GetChildren() do
+						if clientBall and clientBall:FindFirstChild("properties") and clientBall.properties:FindFirstChild("spawner") and clientBall.properties.spawner.Value == spawner then
+							return clientBall
+						end
+					end
+				end
+			end
+		end
+	end
+end
+
+local function doTransition()
+	playerGui.replay.gradient:TweenPosition(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quint, 0.5, true)
+	task.wait(0.35)
+	playerGui.replay.logo.Visible = true
+	playerGui.replay.logo.Size = UDim2.new(0, 0, 0, 0)
+	playerGui.replay.logo:TweenSize(UDim2.new(0, 300, 0, 300), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.2, true)
+	task.wait(0.5)
+	_G._services.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
+	task.wait(0.05)
+	playerGui.replay.fill:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.25, true)
+	task.wait(0.2)
+	playerGui.replay.logo:TweenSize(UDim2.new(0, 350, 0, 350), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.15, true)
+	_G._services.TweenService:Create(playerGui.replay.logo, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.new(1, 1, 1)}):Play()
+	task.wait(0.5)
+	playerGui.replay.logo:TweenSize(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Back, 0.15, true)
+	
+	task.spawn(function()
+		task.wait(0.1)
+		playerGui.replay.gradient.BackgroundTransparency = 1
+		playerGui.replay.gradient.right.BackgroundTransparency = 1
+		playerGui.replay.gradient.left.BackgroundTransparency = 1
+
+		playerGui.replay.fill.AnchorPoint = Vector2.new(1, 0)
+		playerGui.replay.fill.Position = UDim2.new(1, 0, 0, 0)
+		playerGui.replay.fill:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.4, true)
+		
+		task.wait(0.4)
+		playerGui.replay.fill.AnchorPoint = Vector2.new(0, 0)
+		playerGui.replay.fill.Position = UDim2.new(0, 0, 0, 0)
+		playerGui.replay.logo.ImageColor3 = Color3.fromRGB(35, 39, 50)
+		playerGui.replay.logo.Visible = false
+
+		playerGui.replay.gradient.BackgroundTransparency = 0
+		playerGui.replay.gradient.right.BackgroundTransparency = 0
+		playerGui.replay.gradient.left.BackgroundTransparency = 0
+		playerGui.replay.gradient.Position = UDim2.new(-1, -700, 0, 0)
+	end)
+	
+	return
+end
+
+--[[  Body  ]]------------------------------------------------------------------
+
+local config = {}
+
+function config:init(modules)
+	local tasks = {
+		["sound"] = function(args)
+			if args.exclude ~= localPlayer then
+				sounds:load(args)
+			end
+		end,
+		
+		["updateSmartBone"] = function()
+			smartBone.Start()
+		end,
+		
+		["notification"] = function(message, textColor)
+			if notificationPresets[textColor] then
+				notificationPresets[textColor](message)
+			else
+				notifications:create(message, Color3.fromRGB(255, 255, 255))
+			end
+		end,
+
+		["ballModel"] = function(args)
+			if args.exclude ~= localPlayer then
+				local clientBall = getClientBall(args.ball)
+
+				if clientBall and clientBall.Parent and clientBall:FindFirstChild("design") then
+					local design = clientBall:WaitForChild("design", 100)
+
+					if design:FindFirstChildWhichIsA("BasePart") then
+						design:FindFirstChildWhichIsA("BasePart").Transparency = args.transparency
+					end
+				end
+			end
+		end,
+		
+		["goal"] = function(scorer, team, assist)
+			if goalDebounce then
+				return
+			end
+			
+			for _, plr in next, services.Players:GetPlayers() do
+				if plr and string.lower(plr.Name) == string.lower(scorer) then
+					local profile = references.Profiles:WaitForChild(tostring(plr.UserId))
+					if profile then
+						playerGui.main.goal.goals.goals.Text = tostring(profile.stats.Goals.Value)
+					end
+				end
+			end
+
+			goalDebounce = true
+			playerGui.main.goal.Visible = true
+			playerGui.main.goal.background.Visible = false
+			playerGui.main.goal.scorer.Visible = false
+			playerGui.main.goal.scorer.player.Text = string.upper(scorer)
+			
+			if assist then
+				playerGui.main.goal.assist.player.Text = string.upper(assist)
+			end
+			
+			playerGui.main.goal.goal.main.background:TweenPosition(UDim2.new(1.25, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quint, 2, true)
+			
+			task.wait(0.85)
+			playerGui.main.goal.goal.main.label:TweenPosition(UDim2.new(0.825, 0, 0, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 1.35, true)
+			
+			task.wait(0.15)
+			playerGui.main.goal.background.Visible = true
+			
+			task.wait(0.85)
+			playerGui.main.goal.goal.main.label["3"].TextTransparency = 1
+			playerGui.main.goal.goal.main.label["2"].UIStroke.Transparency = 1
+			playerGui.main.goal.goal.main.label:TweenPosition(UDim2.new(0.7, 0, 0, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.4, true)
+			services.TweenService:Create(playerGui.main.goal.goal.main.label["1"], TweenInfo.new(0.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+			
+			task.wait(0.4)
+			
+			playerGui.main.goal.scorer.Visible = true
+			playerGui.main.goal.scorer.icon.Position = UDim2.new(0, -35, 0.5, 0)
+			playerGui.main.goal.scorer.player.Position = UDim2.new(1, 230, 0.5, 0)
+			
+			playerGui.main.goal.scorer.icon:TweenPosition(UDim2.new(0, 0, 0.5, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.25, true)
+			playerGui.main.goal.scorer.player:TweenPosition(UDim2.new(1, 0, 0.5, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.25, true)
+			
+			task.wait(5)
+			
+			playerGui.main.goal.scorer.icon:TweenPosition(UDim2.new(0, -35, 0.5, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.25, true)
+			playerGui.main.goal.scorer.player:TweenPosition(UDim2.new(1, 230, 0.5, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.25, true)
+			
+			task.wait(0.25)
+			
+			if assist then
+				playerGui.main.goal.assist.Visible = true
+				playerGui.main.goal.assist.icon.Position = UDim2.new(0, -40, 0.5, 0)
+				playerGui.main.goal.assist.player.Position = UDim2.new(1, 230, 0.5, 0)
+				playerGui.main.goal.assist.icon:TweenPosition(UDim2.new(0, 0, 0.5, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.25, true)
+				playerGui.main.goal.assist.player:TweenPosition(UDim2.new(1, 0, 0.5, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.25, true)
+			else
+				playerGui.main.goal.goals.Visible = true
+				playerGui.main.goal.goals.label.Position = UDim2.new(-0.77, 0, 0.5, 0)
+				playerGui.main.goal.goals.goals.Position = UDim2.new(1.26, 0, 0.5, 0)
+				playerGui.main.goal.goals.label:TweenPosition(UDim2.new(0, 0, 0.5, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.25, true)
+				playerGui.main.goal.goals.goals:TweenPosition(UDim2.new(1, 0, 0.5, 0), Enum.EasingDirection.Out, Enum.EasingStyle.Quint, 0.25, true)
+			end
+			
+			task.wait(4)
+			
+			playerGui.main.goal.assist.icon:TweenPosition(UDim2.new(0, -40, 0.5, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.25, true)
+			playerGui.main.goal.assist.player:TweenPosition(UDim2.new(1, 230, 0.5, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.25, true)
+			playerGui.main.goal.goals.label:TweenPosition(UDim2.new(-0.77, 0, 0.5, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.25, true)
+			playerGui.main.goal.goals.goals:TweenPosition(UDim2.new(1.26, 0, 0.5, 0), Enum.EasingDirection.In, Enum.EasingStyle.Quint, 0.25, true)
+			
+			task.wait(0.25)
+			playerGui.main.goal.background:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quint, 0.3, true)
+			
+			task.wait(0.35)
+			
+			playerGui.main.goal.Visible = false
+			playerGui.main.goal.scorer.icon.Position = UDim2.new(0, 0, 0.5, 0)
+			playerGui.main.goal.scorer.player.Position = UDim2.new(1, 0, 0.5, 0)
+			playerGui.main.goal.assist.icon.Position = UDim2.new(0, 0, 0.5, 0)
+			playerGui.main.goal.assist.player.Position = UDim2.new(1, 0, 0.5, 0)
+			playerGui.main.goal.goals.label.Position = UDim2.new(0, 0, 0.5, 0)
+			playerGui.main.goal.goals.goals.Position = UDim2.new(1, 0, 0.5, 0)
+			
+			playerGui.main.goal.goal.main.label["3"].TextTransparency = 0
+			playerGui.main.goal.goal.main.label["2"].UIStroke.Transparency = 0
+			playerGui.main.goal.goal.main.label["1"].TextTransparency = 0
+			
+			playerGui.main.goal.goal.main.label.Position = UDim2.new(0, 0, 0, 0)
+			playerGui.main.goal.goal.main.background.Position = UDim2.new(-0.25, 0, 0, 0)
+			playerGui.main.goal.background.Size = UDim2.new(1, 0, 1, 0)
+			
+			playerGui.main.goal.assist.Visible = false
+			playerGui.main.goal.goals.Visible = false
+			
+			goalDebounce = false
+		end,
+		
+		["stats"] = function(title, home, away)
+			if statsDebounce then
+				return
+			end
+
+			statsDebounce = true
+
+			playerGui.main.stats.Visible = true
+			playerGui.main.stats.background.Visible = false
+			playerGui.main.stats.home.Visible = false
+			playerGui.main.stats.away.Visible = false
+			playerGui.main.stats.title.Visible = false
+
+			playerGui.main.stats.fill.layer1:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.075)
+			playerGui.main.stats.fill.layer2:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.15)
+
+			playerGui.main.stats.title.Text = string.upper(title)
+			playerGui.main.stats.home.Text = tostring(home)
+			playerGui.main.stats.away.Text = tostring(away)
+			
+			playerGui.main.stats.home.TextColor3 = teamService:getTeamColorFromTeam("Home")
+			playerGui.main.stats.away.TextColor3 = teamService:getTeamColorFromTeam("Away")
+
+			playerGui.main.stats.background.Visible = true
+			playerGui.main.stats.home.Visible = true
+			playerGui.main.stats.away.Visible = true
+			playerGui.main.stats.title.Visible = true
+
+			playerGui.main.stats.fill.layer1.AnchorPoint = Vector2.new(1, 0)
+			playerGui.main.stats.fill.layer1.Position = UDim2.new(1, 0, 0, 0)
+			playerGui.main.stats.fill.layer2.AnchorPoint = Vector2.new(1, 0)
+			playerGui.main.stats.fill.layer2.Position = UDim2.new(1, 0, 0, 0)
+
+			playerGui.main.stats.fill.layer2:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.075)
+			playerGui.main.stats.fill.layer1:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.15)
+			playerGui.main.stats.fill.layer1.AnchorPoint = Vector2.new(0, 0)
+			playerGui.main.stats.fill.layer1.Position = UDim2.new(0, 0, 0, 0)
+			playerGui.main.stats.fill.layer2.AnchorPoint = Vector2.new(0, 0)
+			playerGui.main.stats.fill.layer2.Position = UDim2.new(0, 0, 0, 0)
+
+			task.wait(5.25)
+			playerGui.main.stats.fill.layer1:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.075)
+			playerGui.main.stats.fill.layer2:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.15)
+
+			playerGui.main.stats.background.Visible = false
+			playerGui.main.stats.home.Visible = false
+			playerGui.main.stats.away.Visible = false
+			playerGui.main.stats.title.Visible = false
+
+			playerGui.main.stats.fill.layer1.AnchorPoint = Vector2.new(1, 0)
+			playerGui.main.stats.fill.layer1.Position = UDim2.new(1, 0, 0, 0)
+			playerGui.main.stats.fill.layer2.AnchorPoint = Vector2.new(1, 0)
+			playerGui.main.stats.fill.layer2.Position = UDim2.new(1, 0, 0, 0)
+
+			playerGui.main.stats.fill.layer2:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+			task.wait(0.075)
+			playerGui.main.stats.fill.layer1:TweenSize(UDim2.new(0, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+
+			task.wait(0.15)
+			playerGui.main.stats.fill.layer1.AnchorPoint = Vector2.new(0, 0)
+			playerGui.main.stats.fill.layer1.Position = UDim2.new(0, 0, 0, 0)
+			playerGui.main.stats.fill.layer2.AnchorPoint = Vector2.new(0, 0)
+			playerGui.main.stats.fill.layer2.Position = UDim2.new(0, 0, 0, 0)
+
+			playerGui.main.stats.background.Visible = true
+			playerGui.main.stats.home.Visible = true
+			playerGui.main.stats.away.Visible = true
+			playerGui.main.stats.title.Visible = true
+
+			playerGui.main.stats.Visible = false
+			statsDebounce = false
+		end,
+		
+		["disableCollider"] = function()
+			workspace.game.shootout.Collide.CanCollide = false
+		end,
+		
+		["resetCollider"] = function(exclude)
+			if not table.find(exclude, localPlayer) then
+				workspace.game.shootout.Collide.CanCollide = true
+			end
+		end,
+		
+		["penalties"] = function()
+			local teamColour = {
+				home = teamService:getTeamColorFromTeam("Home"),
+				away = teamService:getTeamColorFromTeam("Away")
+			}
+			local teamAbbreviation = {
+				home = teamService:getAbbreviationFromTeam("Home"),
+				away = teamService:getAbbreviationFromTeam("Away")
+			}
+			local frame = playerGui.main.penalties
+			
+			for _, reference in next, {"Home", "Away"} do
+				frame.top[string.lower(reference)].label.Text = teamAbbreviation[string.lower(reference)]
+				frame.top[string.lower(reference)].score.Text = tostring(references.Main.config.Stats[reference].Score.Value)
+				frame.top[string.lower(reference)].label.TextColor3 = teamColour[string.lower(reference)]
+				frame.top[string.lower(reference)].score.TextColor3 = teamColour[string.lower(reference)]
+			end
+			
+			frame.Visible = true
+			services.TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {GroupTransparency = 0, Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+			
+			task.wait(0.2)
+			
+			for _, reference in next, {"Home", "Away"} do
+				task.spawn(function()
+					for index, taker in next, references.Main.config.Penalties.Takers[reference]:GetChildren() do
+						if taker then
+							local template = references.Main.ui["penaltyTaker" .. reference]:Clone()
+							template.Name = tostring(index)
+							template.LayoutOrder = index
+							
+							if reference == "Home" then
+								template.main.Position = UDim2.new(-1, 0, 0, 0)
+							else
+								template.main.Position = UDim2.new(1, 0, 0, 0)
+							end
+							
+							template.main.player.Text = taker.Name
+							template.main.number.Text = tostring(taker.Value)
+							template.main.player.TextTransparency = 1
+							template.main.number.TextTransparency = 1
+							template.main.divider.BackgroundTransparency = 1
+							template.Parent = frame[string.lower(reference)]
+							services.TweenService:Create(template.main.player, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+							services.TweenService:Create(template.main.number, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+							services.TweenService:Create(template.main.divider, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+							template.main:TweenPosition(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.35, true)
+							task.wait(0.25)
+						end
+					end
+				end)
+			end
+			
+			task.wait(7)
+			
+			for _, reference in next, {"Home", "Away"} do
+				for _, template in next, frame[string.lower(reference)]:GetChildren() do
+					if template and template:IsA("Frame") then
+						services.TweenService:Create(template.main.player, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+						services.TweenService:Create(template.main.number, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+						services.TweenService:Create(template.main.divider, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+						
+						if reference == "Home" then
+							template.main:TweenPosition(UDim2.new(-1, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.35, true)
+						else
+							template.main:TweenPosition(UDim2.new(1, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.35, true)
+						end
+						
+						task.delay(0.4, function()
+							template:Destroy()
+						end)
+					end
+				end
+			end
+			
+			task.wait(0.2)
+			services.TweenService:Create(frame, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {GroupTransparency = 1, Position = UDim2.new(0.5, 0, 0.5, 20)}):Play()
+			task.wait(0.25)
+			frame.Visible = false
+		end,
+		
+		["scorers"] = function(status)
+			local teamColour = {
+				home = teamService:getTeamColorFromTeam("Home"),
+				away = teamService:getTeamColorFromTeam("Away")
+			}
+			local frame = playerGui.main.scorers
+			
+			for _, reference in next, {"Home", "Away"} do
+				frame[string.lower(reference)].main.label.Text = string.upper(references.Main.config.Stats[reference].Team.Value)
+				frame[string.lower(reference)].main.score.Text = tostring(references.Main.config.Stats[reference].Score.Value)
+				
+				frame[string.lower(reference)].main.label.TextColor3 = teamColour[string.lower(reference)]
+				frame[string.lower(reference)].main.score.TextColor3 = teamColour[string.lower(reference)]
+				
+				for index, scorer in next, references.Main.config.Scorers[reference]:GetChildren() do
+					if scorer and index <= 4 then
+						local template = references.Main.ui["scorer" .. reference]:Clone()
+						template.Parent = frame[string.lower(reference)].scorers.list
+						template.scorer.Text = string.upper(scorer.Name)
+						template.time.Text = tostring(scorer.Value) .. "'"
+						template.scorer.TextTransparency = 1
+						template.time.TextTransparency = 1
+						template.divider.BackgroundTransparency = 1
+					end
+				end
+			end
+			
+			frame.status.label.Text = string.upper(status)
+			frame.Visible = true
+			services.TweenService:Create(frame.background, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+			services.TweenService:Create(frame.background.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0}):Play()
+			
+			task.wait(0.1)
+			services.TweenService:Create(frame.logo, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+			task.wait(0.2)
+			
+			frame.home.main:TweenPosition(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+			frame.away.main:TweenPosition(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+			
+			services.TweenService:Create(frame.status.background, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+			services.TweenService:Create(frame.status.background.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0}):Play()
+			frame.status:TweenSize(UDim2.new(0, 200, 0, 30), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+			
+			task.wait(0.2)
+			services.TweenService:Create(frame.status.label, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+			
+			for _, reference in next, {"home", "away"} do
+				task.spawn(function()
+					services.TweenService:Create(frame[reference].main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+					services.TweenService:Create(frame[reference].main.score, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+					
+					if #frame[reference].scorers.list:GetChildren() > 1 then
+						services.TweenService:Create(frame[reference].scorers.background, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+						services.TweenService:Create(frame[reference].scorers.background.UIStroke, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0}):Play()
+						frame[reference].scorers:TweenSize(UDim2.new(1, -50, 0, math.clamp(frame[reference].scorers.list.AbsoluteSize.Y, 0, 140)), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+
+						task.wait(0.15)
+
+						for _, template in next, frame[reference].scorers.list:GetChildren() do
+							if template and template:IsA("Frame") then
+								services.TweenService:Create(template.scorer, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+								services.TweenService:Create(template.time, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0}):Play()
+								services.TweenService:Create(template.divider, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+							end
+						end
+					end
+				end)
+			end
+			
+			task.wait(7)
+			
+			for _, reference in next, {"home", "away"} do
+				task.spawn(function()
+					for _, template in next, frame[reference].scorers.list:GetChildren() do
+						if template and template:IsA("Frame") then
+							services.TweenService:Create(template.scorer, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+							services.TweenService:Create(template.time, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+							services.TweenService:Create(template.divider, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+							task.delay(0.2, function()
+								template:Destroy()
+							end)
+						end
+					end
+					
+					task.wait(0.15)
+					
+					services.TweenService:Create(frame[reference].main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+					services.TweenService:Create(frame[reference].main.score, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+					services.TweenService:Create(frame[reference].scorers.background, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+					services.TweenService:Create(frame[reference].scorers.background.UIStroke, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 1}):Play()
+					frame[reference].scorers:TweenSize(UDim2.new(1, -50, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.15, true)
+				end)
+			end
+			
+			services.TweenService:Create(frame.status.label, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+			task.wait(0.2)
+			
+			frame.home.main:TweenPosition(UDim2.new(1, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+			frame.away.main:TweenPosition(UDim2.new(-1, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+
+			services.TweenService:Create(frame.status.background, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+			services.TweenService:Create(frame.status.background.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 1}):Play()
+			frame.status:TweenSize(UDim2.new(0, 200, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+			
+			task.wait(0.1)
+			services.TweenService:Create(frame.logo, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+			task.wait(0.1)
+			services.TweenService:Create(frame.background, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+			services.TweenService:Create(frame.background.UIStroke, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 1}):Play()
+			task.wait(0.2)
+			frame.Visible = false
+		end,
+
+		["ballSelection"] = function()
+			if not modules.visuals.ballSelection.toggled then
+				modules.visuals.ballSelection:toggle(true)
+			end
+		end,
+		
+		["stadiumSelection"] = function()
+			if not modules.visuals.stadiumSelection.toggled then
+				modules.visuals.stadiumSelection:toggle(true)
+			end
+		end,
+		
+		["teamSelection"] = function()
+			if not modules.visuals.teamSelection.toggled then
+				modules.visuals.teamSelection:toggle(true)
+			end
+		end,
+		
+		["matchSettings"] = function()
+			if not modules.visuals.matchSettings.toggled then
+				modules.visuals.matchSettings:toggle(true)
+			end
+		end,
+		
+		["voteKick"] = function(user)
+			if not modules.visuals.voteKick.toggled then
+				modules.visuals.voteKick:toggle(user)
+			end
+		end,
+		
+		["voteKickEnd"] = function()
+			if modules.visuals.voteKick.toggled then
+				modules.visuals.voteKick:toggle(false)
+			end
+		end,
+		
+		["voteFix"] = function()
+			if not modules.visuals.voteFix.toggled then
+				modules.visuals.voteFix:toggle(true)
+			end
+		end,
+		
+		["voteFixEnd"] = function()
+			if modules.visuals.voteFix.toggled then
+				modules.visuals.voteFix:toggle(false)
+			end
+		end,
+
+		["bootSelection"] = function()
+			if not modules.visuals.bootSelection.toggled then
+				modules.visuals.bootSelection:toggle(true)
+			end
+		end,
+
+		["accessorySelection"] = function()
+			if not modules.visuals.accessorySelection.toggled then
+				modules.visuals.accessorySelection:toggle(true)
+			end
+		end,
+		
+		["registerTeleporter"] = function(exclude, model, preset)
+			if localPlayer == exclude then
+				return
+			end
+			
+			if preset == "kickoff" then
+				local function onTouch(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character then
+						network:send("pitchTeleporter")
+					end
+				end
+				
+				local function onTouchRegion(hit, part)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character then
+						if localPlayer.Team and string.find(localPlayer.Team.Name, "Home") and part.Name == "Away" then
+							network:send("pitchTeleporter")
+						elseif localPlayer.Team and string.find(localPlayer.Team.Name, "Away") and part.Name == "Home" then
+							network:send("pitchTeleporter")
+						end
+					end
+				end
+
+				for _, part in next, model.Area:GetChildren() do
+					if part and part:IsA("BasePart") then
+						local key = _G._services.HttpService:GenerateGUID(false)
+						teleportMaid[key .. "_onTouched"] = part.Touched:Connect(onTouch)
+						teleportMaid[key .. "_onTouchEnded"] = part.TouchEnded:Connect(onTouch)
+					end
+				end
+
+				teleportMaid["_onTouchedRegionHome"] = model.Home.Touched:Connect(function(hit)
+					onTouchRegion(hit, model.Home)
+				end)
+				teleportMaid["_onTouchedRegionHome"] = model.Home.TouchEnded:Connect(function(hit)
+					onTouchRegion(hit, model.Home)
+				end)
+				for _, hit in next, model.Home:GetTouchingParts() do
+					onTouchRegion(hit, model.Home)
+				end
+
+				teleportMaid["_onTouchedRegionAway"] = model.Away.Touched:Connect(function(hit)
+					onTouchRegion(hit, model.Away)
+				end)
+				teleportMaid["_onTouchedRegionAway"] = model.Away.TouchEnded:Connect(function(hit)
+					onTouchRegion(hit, model.Away)
+				end)
+				for _, hit in next, model.Away:GetTouchingParts() do
+					onTouchRegion(hit, model.Away)
+				end
+
+				--teleportMaid["_areaTouched"] = workspace.game.regions.under.Touched:Connect(onTouch)
+				--teleportMaid["_areaTouchEnded"] = workspace.game.regions.under.TouchEnded:Connect(onTouch)
+			elseif preset == "penalty" then
+				local function onTouch(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character and model.Detector.CanCollide then
+						if (model.Team.Value == "home" and localPlayer.TeamColor == BrickColor.new("Navy blue")) or (model.Team.Value == "away" and localPlayer.TeamColor == BrickColor.new("Maroon")) then
+							network:send("partTeleport", model.GK)
+						else
+							network:send("partTeleport", model.Teleport)
+						end
+					end
+				end
+				
+				local function onTouchGK(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character and model.Detector.CanCollide then
+						if localPlayer.TeamColor == BrickColor.new("Storm blue") or localPlayer.TeamColor == BrickColor.new("Crimson") then
+							network:send("partTeleport", model.Teleport)
+						end
+					end
+				end
+
+				for _, part in next, model.Area:GetChildren() do
+					if part and part:IsA("BasePart") then
+						local key = _G._services.HttpService:GenerateGUID(false)
+						teleportMaid[key .. "_onTouched"] = part.Touched:Connect(onTouch)
+						teleportMaid[key .. "_onTouchEnded"] = part.TouchEnded:Connect(onTouch)
+					end
+				end
+
+				--teleportMaid["_areaTouched"] = workspace.game.regions.under.Touched:Connect(onTouch)
+				--teleportMaid["_areaTouchEnded"] = workspace.game.regions.under.TouchEnded:Connect(onTouch)
+				
+				teleportMaid["_gkTouched"] = model.Box.Touched:Connect(onTouchGK)
+				teleportMaid["_gkTouchEnded"] = model.Box.TouchEnded:Connect(onTouchGK)
+			elseif preset == "default" then
+				local function onTouch(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character then
+						network:send("partTeleport", model.Teleport)
+					end
+				end
+
+				for _, part in next, model.Area:GetChildren() do
+					if part and part:IsA("BasePart") then
+						local key = _G._services.HttpService:GenerateGUID(false)
+						teleportMaid[key .. "_onTouched"] = part.Touched:Connect(onTouch)
+						teleportMaid[key .. "_onTouchEnded"] = part.TouchEnded:Connect(onTouch)
+					end
+				end
+
+				--teleportMaid["_areaTouched"] = workspace.game.regions.under.Touched:Connect(onTouch)
+				--teleportMaid["_areaTouchEnded"] = workspace.game.regions.under.TouchEnded:Connect(onTouch)
+			elseif preset == "shootout" then
+				local function onTouch(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character and model.Detector.CanCollide then
+						if (model.Team.Value == "home" and localPlayer.TeamColor == BrickColor.new("Navy blue")) or (model.Team.Value == "away" and localPlayer.TeamColor == BrickColor.new("Maroon")) then
+							network:send("partTeleport", model.GK)
+						else
+							network:send("partTeleport", model.Teleport)
+						end
+					end
+				end
+
+				local function onTouchGK(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character and model.Detector.CanCollide then
+						if localPlayer.TeamColor == BrickColor.new("Storm blue") or localPlayer.TeamColor == BrickColor.new("Crimson") then
+							network:send("partTeleport", model.Teleport)
+						end
+					end
+				end
+				
+				local function onTouchDetector(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChildWhichIsA("Humanoid") and hit.Parent == localPlayer.Character and model.Detector.CanCollide then
+						if (model.Team.Value == "away" and localPlayer.TeamColor == BrickColor.new("Navy blue")) or (model.Team.Value == "home" and localPlayer.TeamColor == BrickColor.new("Maroon")) then
+							network:send("partTeleport", model.Teleport)
+						end
+					end
+				end
+
+				for _, part in next, model.Area:GetChildren() do
+					if part and part:IsA("BasePart") then
+						local key = _G._services.HttpService:GenerateGUID(false)
+						teleportMaid[key .. "_onTouched"] = part.Touched:Connect(onTouch)
+						teleportMaid[key .. "_onTouchEnded"] = part.TouchEnded:Connect(onTouch)
+					end
+				end
+
+				--teleportMaid["_areaTouched"] = workspace.game.regions.under.Touched:Connect(onTouch)
+				--teleportMaid["_areaTouchEnded"] = workspace.game.regions.under.TouchEnded:Connect(onTouch)
+
+				teleportMaid["_gkTouched"] = model.Box.Touched:Connect(onTouchGK)
+				teleportMaid["_gkTouchEnded"] = model.Box.TouchEnded:Connect(onTouchGK)
+				
+				teleportMaid["_detectorTouched"] = workspace.game.shootout.Detector.Touched:Connect(onTouchDetector)
+				teleportMaid["_detectorTouchEnded"] = workspace.game.shootout.Detector.TouchEnded:Connect(onTouchDetector)
+			end
+		end,
+		
+		["clearTeleporter"] = function()
+			teleportMaid:DoCleaning()
+		end,
+
+		["playTrack"] = function(track)
+			jukeboxController:play(track)
+		end,
+		
+		["displayAward"] = function(reference, part)
+			local connection
+			local duration = 0.5
+			local transition = 0.5
+			local start = tick()
+			local total = duration + 4 + transition
+			
+			if reference == "TGE_Shines" then
+				references.Main.sounds.UI.Shines:Play()
+			elseif reference == "TGE_Silver" then
+				references.Main.sounds.UI.Silver:Play()
+			end
+			
+			playerGui.main.item.Visible = true
+			playerGui.main.screen.Visible = true
+			
+			if part then
+				part:Destroy()
+			end
+			
+			services.TweenService:Create(playerGui.main.screen, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0.3}):Play()
+			
+			local award = references.Main.storage[reference]:Clone()
+			award.Parent = playerGui.main.item
+			
+			local clone = references.Main.storage[reference]:Clone()
+			clone.Parent = workspace.game.debug
+			clone.CFrame = award.CFrame * CFrame.new(0, -50, 0)
+
+			local origin = clone.CFrame
+			
+			local viewportCamera = Instance.new("Camera", playerGui.main.item)
+			viewportCamera.CFrame = award.CFrame * CFrame.new(0, 10, -7) * CFrame.fromEulerAnglesXYZ(0, math.rad(180), 0)
+			playerGui.main.item.CurrentCamera = viewportCamera
+			
+			connection = services.RunService.RenderStepped:Connect(function()
+				local spinStep = math.rad(350)
+				local spinLerp = math.clamp((tick() - start) / total, 0, 1)
+				award.CFrame = ((clone.CFrame * CFrame.new(0, 50, 0)) * CFrame.Angles(0, 0, math.rad(15))) * CFrame.Angles(0, spinStep * spinLerp, 0)
+			end)
+			
+			services.TweenService:Create(clone, TweenInfo.new(duration, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {CFrame = origin * CFrame.new(0, 10, 0)}):Play()
+			task.wait(0.2)
+			
+			services.TweenService:Create(playerGui.main.aura, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {GroupTransparency = 0}):Play()
+			services.TweenService:Create(playerGui.main.aura.sunburst, TweenInfo.new((duration - 0.2) + 2 + transition, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {Rotation = 450}):Play()
+			
+			task.wait((duration - 0.2) + 4)
+
+			services.TweenService:Create(clone, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In), {CFrame = origin}):Play()
+			services.TweenService:Create(playerGui.main.screen, TweenInfo.new(transition, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+			services.TweenService:Create(playerGui.main.aura, TweenInfo.new(transition, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {GroupTransparency = 1}):Play()
+			
+			task.wait(transition)
+			
+			playerGui.main.aura.sunburst.Rotation = 0
+			playerGui.main.item.Visible = false
+			playerGui.main.screen.Visible = false
+			
+			connection:Disconnect()
+			clone:Destroy()
+			award:Destroy()
+			viewportCamera:Destroy()
+		end,
+		
+		["collisionGroup"] = function(part, collisionGroup, exclude)
+			if exclude and localPlayer == exclude then
+				return
+			end
+			part.CollisionGroup = collisionGroup
+		end,
+		
+		["endReplay"] = function(status, attributes)
+			local value = Instance.new("StringValue")
+			value.Name = "end"
+			value.Value = status
+			
+			if attributes then
+				for attributeName, attributeValue in next, attributes do
+					if attributeName and attributeValue then
+						value:SetAttribute(attributeName, attributeValue)
+					end
+				end
+			end
+			
+			value.Parent = localPlayer.PlayerScripts.replay
+		end,
+		
+		["replay"] = function(preset, side, speed)
+			doTransition()
+			
+			local referee = workspace.game.referee
+			local rootCFrame = localPlayer.Character.PrimaryPart.CFrame
+			local serverFolder = ballUtil.GetServerBallFolder()
+			local characters = {}
+			local spawns = {}
+			local balls = {}
+			
+			for _, part in next, workspace.spawns.spawn:GetChildren() do
+				if part and part.Name == "spawn" then
+					table.insert(spawns, part)
+				end
+			end
+			
+			for _, ball in next, ballUtil.GetBalls() do
+				if ball then
+					balls[ball] = ball.CFrame
+					ball.CFrame = workspace.game.holder.Teleport.CFrame
+				end
+			end
+			
+			for _, player in next, services.Players:GetPlayers() do
+				if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+					if not characters[player] then
+						characters[player] = {}
+					end
+					
+					for _, part in next, player.Character:GetDescendants() do
+						if part and (part:IsA("BasePart") or part:IsA("Decal") or part:IsA("Texture")) then
+							characters[player][part] = part.Transparency
+							part.Transparency = 1
+						end
+					end
+				end
+			end
+			
+			network:send("partTeleport", spawns[math.random(1, #spawns)], CFrame.new(0, 3.5, 0))
+			referee.Parent = _G._references.Main
+			
+			playerGui.main.Enabled = false
+			references.Main.fans.Cheer.Value = false
+			
+			local replayValue = Instance.new("StringValue")
+			replayValue.Name = "play"
+			replayValue.Value = preset
+			replayValue:SetAttribute("side", side)
+			replayValue:SetAttribute("speed", speed)
+			replayValue.Parent = localPlayer.PlayerScripts.replay
+			
+			while replayValue.Parent do
+				task.wait()
+			end
+			
+			doTransition()
+			
+			for _, value in next, workspace.game.debug:GetChildren() do
+				if value and value.Name == localPlayer.Name and value:IsA("BoolValue") and value:GetAttribute("replay") then
+					value:Destroy()
+				end
+			end
+			
+			workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+			workspace.CurrentCamera.FieldOfView = tonumber(references.Profile.settings.Visual["Field of View"].Value)
+			references.Main.fans.Cheer.Value = false
+			
+			for ball, cframe in next, balls do
+				if ball and cframe then
+					ball.CFrame = cframe
+					ball.Anchored = false
+					ball:SetAttribute("replay", nil)
+					ball:SetAttribute("netHit", nil)
+					
+					if ball:FindFirstChild("replication") and ball.replication:FindFirstChild("AssemblyLinearVelocity") then
+						ball.replication.AssemblyLinearVelocity.Value = Vector3.zero
+					end
+				end
+			end
+			
+			for _, player in next, services.Players:GetPlayers() do
+				if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and characters[player] then
+					for part, transparency in next, characters[player] do
+						if part and transparency then
+							part.Transparency = transparency
+						end
+					end
+				end
+			end
+			
+			referee.Parent = workspace.game
+			localPlayer.Character:SetPrimaryPartCFrame(rootCFrame)
+			playerGui.main.Enabled = true
+			_G._services.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
+		end,
+		
+		["cutscene"] = function(preset, folder, args)
+			if preset == "penalty" and not visuals.menu:GetAttribute("enabled") then
+				local connection
+				local cameraOverride = Instance.new("BoolValue", workspace.game.debug)
+				cameraOverride.Name = localPlayer.Name
+				cameraOverride.Value = true
+				
+				workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+				workspace.CurrentCamera.CFrame = folder.cutsceneSettings.CameraOrigin.Value.CFrame
+				workspace.CurrentCamera.FieldOfView = tonumber(folder.cutsceneSettings.CameraFieldOfView.Value)
+				
+				connection = _G._services.RunService.RenderStepped:Connect(function(delta)
+					if not folder.cutsceneSettings.LockOnTarget.Value then
+						connection:Disconnect()
+						cameraOverride:Destroy()
+						
+						workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+						workspace.CurrentCamera.FieldOfView = tonumber(references.Profile.settings.Visual["Field of View"].Value)
+					else
+						workspace.CurrentCamera.FieldOfView  = tonumber(folder.cutsceneSettings.CameraFieldOfView.Value)
+						workspace.CurrentCamera.CFrame = CFrame.lookAt(folder.cutsceneSettings.CameraOrigin.Value.CFrame.Position - Vector3.new(0, 1, 0), folder.cutsceneSettings.LockOnTarget.Value.PrimaryPart.CFrame.Position)
+					end
+				end)
+
+				task.wait(1)
+				
+	
+				
+				services.TweenService:Create(playerGui.main.overlay.color, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+				task.wait(0.5)
+				playerGui.main.overlay.color.Visible = false
+			elseif preset == "celebration" and not visuals.menu:GetAttribute("enabled") then
+				local connection
+				local angles1 = args.angles["1"]:GetChildren()
+				local angles2 = args.angles["2"]:GetChildren()
+				local angle1 = folder[angles1[1].Name]
+				local angle2 = folder[angles2[1].Name]
+				local target = folder.cutsceneSettings.LockOnTarget.Value
+				local cameraOverride = Instance.new("BoolValue", workspace.game.debug)
+				cameraOverride.Name = localPlayer.Name
+				cameraOverride.Value = true
+				
+				if #angles1 > 1 then
+					angle1 = folder[angles1[math.random(1, #angles1)].Name]
+				end
+				
+				if #angles2 > 1 then
+					angle2 = folder[angles2[math.random(1, #angles2)].Name]
+				end
+				
+				if localPlayer.PlayerGui and localPlayer.PlayerGui:FindFirstChild("UI") then
+					localPlayer.PlayerGui.UI.Enabled = false
+				end
+
+				workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+				workspace.CurrentCamera.FieldOfView = tonumber(folder.cutsceneSettings.CameraFieldOfView.Value)
+				
+				connection = _G._services.RunService.RenderStepped:Connect(function(delta)
+					workspace.CurrentCamera.FieldOfView  = tonumber(folder.cutsceneSettings.CameraFieldOfView.Value)
+					if not folder.special:FindFirstChild(args.Name) then
+						workspace.CurrentCamera.CFrame = CFrame.lookAt(angle1.CFrame.Position, folder.cutsceneSettings.LockOnTarget.Value.CFrame.Position)
+					end
+				end)
+				
+				if folder.special:FindFirstChild(args.Name) then
+					workspace.CurrentCamera.CFrame = folder.special[args.Name].start.CFrame
+					services.TweenService:Create(workspace.CurrentCamera, TweenInfo.new(tonumber(args.duration.Value + 0.35), Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {CFrame = folder.special[args.Name].finish.CFrame}):Play()
+				end
+				
+				task.wait(tonumber(args.duration.Value) * 0.2666666667)
+				
+				if connection then
+					connection:Disconnect()
+				end
+
+				connection = _G._services.RunService.RenderStepped:Connect(function(delta)
+					if not folder.cutsceneSettings.LockOnTarget.Value then
+						connection:Disconnect()
+						
+						if not folder.special:FindFirstChild(args.Name) then
+							task.spawn(function()
+								connection = _G._services.RunService.RenderStepped:Connect(function(delta)
+									if cameraOverride and cameraOverride.Parent then
+										workspace.CurrentCamera.FieldOfView  = tonumber(folder.cutsceneSettings.CameraFieldOfView.Value)
+										workspace.CurrentCamera.CFrame = CFrame.lookAt(angle2.CFrame.Position, target.CFrame.Position)
+									else
+										connection:Disconnect()
+									end
+								end)
+							end)
+						end
+						
+						doTransition()
+						cameraOverride:Destroy()
+						
+						task.wait(0.001)
+
+						if localPlayer.PlayerGui and localPlayer.PlayerGui:FindFirstChild("UI") then
+							localPlayer.PlayerGui.UI.Enabled = true
+						end
+
+						workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+						workspace.CurrentCamera.FieldOfView = tonumber(references.Profile.settings.Visual["Field of View"].Value)
+						
+						task.wait(0.25)
+						_G._services.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
+					else
+						workspace.CurrentCamera.FieldOfView  = tonumber(folder.cutsceneSettings.CameraFieldOfView.Value)
+						if not folder.special:FindFirstChild(args.Name) then
+							workspace.CurrentCamera.CFrame = CFrame.lookAt(angle2.CFrame.Position, folder.cutsceneSettings.LockOnTarget.Value.CFrame.Position)
+						end
+					end
+				end)
+			end
+		end,
+		
+		["offside"] = function(visual)
+			if replayDebounce then
+				return
+			end
+			
+			replayDebounce = true
+			
+			doTransition()
+			playerGui.replay.offside.viewport:ClearAllChildren()
+			
+			for _, model in next, visual:GetChildren() do
+				if model and model.Parent then
+					local clone = model:Clone()
+					clone.Parent = playerGui.replay.offside.viewport
+
+					if clone.Name == "line" then
+						clone.Size = Vector3.new(0.001, clone.Size.Y, clone.Size.Z)
+					end
+				end
+			end
+			
+			local viewportCamera = Instance.new("Camera", playerGui.replay.offside.viewport)
+			viewportCamera.FieldOfView = 70
+			viewportCamera.CameraType = Enum.CameraType.Scriptable
+			
+			if playerGui.replay.offside.viewport.attacker.HumanoidRootPart.Position.Z <= 0 then
+				viewportCamera.CFrame = workspace.game.cameras.offsideHomeStart.CFrame
+				playerGui.replay.offside.viewport.line.Position += Vector3.new(0, 0, 1)
+				visual.line.Position += Vector3.new(0, 0, 1)
+			
+				if playerGui.replay.offside.viewport.attacker.HumanoidRootPart.Position.X <= playerGui.replay.offside.viewport.defender.HumanoidRootPart.Position.X then
+					workspace.game.cameras.offsideHomeFinal.Position = Vector3.new(playerGui.replay.offside.viewport.attacker.HumanoidRootPart.Position.X - 50, workspace.game.cameras.offsideHomeFinal.Position.Y, visual.line.Position.Z + 0.001)
+				else
+					workspace.game.cameras.offsideHomeFinal.Position = Vector3.new(playerGui.replay.offside.viewport.defender.HumanoidRootPart.Position.X - 50, workspace.game.cameras.offsideHomeFinal.Position.Y, visual.line.Position.Z + 0.001)
+				end
+			else
+				viewportCamera.CFrame = workspace.game.cameras.offsideAwayStart.CFrame
+				playerGui.replay.offside.viewport.line.Position -= Vector3.new(0, 0, 1)
+				visual.line.Position -= Vector3.new(0, 0, 1)
+				
+				if playerGui.replay.offside.viewport.attacker.HumanoidRootPart.Position.X >= playerGui.replay.offside.viewport.defender.HumanoidRootPart.Position.X then
+					workspace.game.cameras.offsideAwayFinal.Position = Vector3.new(playerGui.replay.offside.viewport.attacker.HumanoidRootPart.Position.X + 50, workspace.game.cameras.offsideAwayFinal.Position.Y, visual.line.Position.Z - 0.001)
+				else
+					workspace.game.cameras.offsideAwayFinal.Position = Vector3.new(playerGui.replay.offside.viewport.defender.HumanoidRootPart.Position.X + 50, workspace.game.cameras.offsideAwayFinal.Position.Y, visual.line.Position.Z - 0.001)
+				end
+			end
+			
+			playerGui.replay.offside.viewport.CurrentCamera = viewportCamera
+			playerGui.replay.offside.Visible = true
+			playerGui.replay.offside.label.Size = UDim2.new(0, 0, 0, 50)
+			
+			local cf, size = playerGui.replay.offside.viewport.attacker:GetBoundingBox()
+			local region = partToRegion3._get(cf, size)
+			local angle1 = region.CFrame * CFrame.new(-16, 4.5, 10) * CFrame.fromEulerAnglesXYZ(-0.375, -1, -0.33)
+			local angle2 = region.CFrame * CFrame.new(30, 2, -0.16) * CFrame.fromEulerAnglesXYZ(0, 1.6, 0)
+
+			_G._services.TweenService:Create(viewportCamera, TweenInfo.new(2, Enum.EasingStyle.Circular, Enum.EasingDirection.Out), {FieldOfView = 40, CFrame = angle1}):Play()
+			
+			task.wait(2)
+			_G._services.TweenService:Create(playerGui.replay.offside.viewport.line, TweenInfo.new(0.7, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Size = Vector3.new(visual.line.Size.X, visual.line.Size.Y, visual.line.Size.Z)}):Play()
+			
+			task.wait(0.3)
+			playerGui.replay.offside.label:TweenSize(UDim2.new(0, playerGui.replay.offside.label.main.AbsoluteSize.X, 0, playerGui.replay.offside.label.main.AbsoluteSize.Y), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.4, true)
+			
+			task.wait(3)
+			
+			if playerGui.replay.offside.viewport.attacker.HumanoidRootPart.Position.Z <= 0 then
+				_G._services.TweenService:Create(viewportCamera, TweenInfo.new(3.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {FieldOfView = 35, CFrame = workspace.game.cameras.offsideHomeFinal.CFrame}):Play()
+			else
+				_G._services.TweenService:Create(viewportCamera, TweenInfo.new(3.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {FieldOfView = 35, CFrame = workspace.game.cameras.offsideAwayFinal.CFrame}):Play()
+			end
+			
+			task.wait(5)
+			playerGui.replay.gradient:TweenPosition(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quint, 0.5, true)
+			task.wait(0.5)
+			
+			doTransition()
+			playerGui.replay.offside.Visible = false
+			playerGui.replay.offside.viewport:ClearAllChildren()
+			_G._services.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
+			
+			task.wait(0.4)
+			replayDebounce = false
+			network:send("replay")
+		end,
+		
+		["quickFoul"] = function(model)
+			model.Detector.CanCollide = false
+			network:send("partTeleport", model.Player)
+		end,
+
+		["freeKick"] = function(model, spawner)
+			task.spawn(function()
+				local ballFolder = ballUtil.GetServerBallFolder()
+				
+				if ballFolder then
+					for _, ball in next, ballFolder:GetChildren() do
+						if ball and ball:IsA("BasePart") and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == spawner then
+							freeKick.new(model, ball)
+						end
+					end
+				end
+			end)
+		end,
+		
+		["goalKick"] = function(model, spawner)
+			task.spawn(function()
+				local ballFolder = ballUtil.GetServerBallFolder()
+
+				if ballFolder then
+					for _, ball in next, ballFolder:GetChildren() do
+						if ball and ball:IsA("BasePart") and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == spawner then
+							goalKick.new(model, ball)
+						end
+					end
+				end
+			end)
+		end,
+		
+		["throwIn"] = function(model, spawner)
+			task.spawn(function()
+				local ballFolder = ballUtil.GetServerBallFolder()
+
+				if ballFolder then
+					for _, ball in next, ballFolder:GetChildren() do
+						if ball and ball:IsA("BasePart") and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == spawner then
+							throwIn.new(model, ball)
+						end
+					end
+				end
+			end)
+		end,
+		
+		["corner"] = function(model, spawner)
+			task.spawn(function()
+				local ballFolder = ballUtil.GetServerBallFolder()
+
+				if ballFolder then
+					for _, ball in next, ballFolder:GetChildren() do
+						if ball and ball:IsA("BasePart") and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == spawner then
+							corner.new(model, ball)
+						end
+					end
+				end
+			end)
+		end,
+		
+		["penalty"] = function(model, spawner)
+			task.spawn(function()
+				local ballFolder = ballUtil.GetServerBallFolder()
+
+				if ballFolder then
+					for _, ball in next, ballFolder:GetChildren() do
+						if ball and ball:IsA("BasePart") and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == spawner then
+							penalty.new(model, ball)
+						end
+					end
+				end
+			end)
+		end,
+		
+		["shootout"] = function(model, spawner)
+			task.spawn(function()
+				local ballFolder = ballUtil.GetServerBallFolder()
+
+				if ballFolder then
+					for _, ball in next, ballFolder:GetChildren() do
+						if ball and ball:IsA("BasePart") and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == spawner then
+							shootout.new(model, ball)
+						end
+					end
+				end
+			end)
+		end,
+		
+		["forceDisable"] = function(toggle)
+			root:SetAttribute("forceDisable", toggle)
+		end,
+		
+		["globalOverride"] = function(toggle)
+			root:SetAttribute("globalOverride", toggle)
+		end,
+		
+		["canSprint"] = function(toggle)
+			movementController:SetAttribute("canSprint", toggle)
+		end,
+		
+		["advantageStart"] = function()
+			playerGui.main.advantage.Visible = true
+			playerGui.main.advantage.bar.progress.Size = UDim2.new(0, 0, 1, 0)
+			playerGui.main.advantage.bar.progress:TweenSize(UDim2.new(1, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Linear, 5, true)
+			
+			task.delay(5, function()
+				if playerGui.main.advantage.Visible then
+					playerGui.main.advantage.Visible = false
+				end
+			end)
+		end,
+		
+		["advantageEnd"] = function()
+			playerGui.main.advantage.Visible = false
+		end,
+		
+		["updateCounter"] = function()
+			local useBadgeCount = false
+			
+			if useBadgeCount then
+				local silvers = 0
+				local shines = 0
+
+				for index = 1, 3 do
+					local badge = badgeService._badges["Quest " .. tostring(index)]
+					if badgeService:hasBadge(localPlayer, badge) then
+						silvers += 1
+					end
+				end
+
+				for index = 1, 5 do
+					local badge = badgeService._badges["Item " .. tostring(index)]
+					if badgeService:hasBadge(localPlayer, badge) then
+						shines += 1
+					end
+				end
+
+				playerGui.main.quests.progress.progress:TweenSize(UDim2.new(1, 0, silvers / 3, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.35, true)
+				playerGui.main.counter.silvers.count.Text = tostring(silvers)
+				playerGui.main.counter.shines.count.Text = tostring(shines)
+			else
+				local value = references.Main.event:WaitForChild(localPlayer.Name, 100)
+				
+				if value:GetAttribute("quest1") then
+					services.TweenService:Create(playerGui.main.event.quests.icons["1"], TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = Color3.fromRGB(85, 255, 127)}):Play()
+				end
+				if value:GetAttribute("quest2") then
+					services.TweenService:Create(playerGui.main.event.quests.icons["2"], TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = Color3.fromRGB(85, 255, 127)}):Play()
+				end
+				if value:GetAttribute("quest3") then
+					services.TweenService:Create(playerGui.main.event.quests.icons["3"], TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundColor3 = Color3.fromRGB(85, 255, 127)}):Play()
+				end
+
+				playerGui.main.event.quests.progress.progress:TweenSize(UDim2.new((value:GetAttribute("silvers") or 0) / 3, 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.35, true)
+				playerGui.main.event.counter.silvers.count.Text = tostring(value:GetAttribute("silvers") or 0)
+				playerGui.main.event.counter.shines.count.Text = tostring(value:GetAttribute("shines") or 0)
+			end
+		end,
+		
+		["shiftLock"] = function(toggle)
+			if not toggle then
+				mouseLockController:SetAttribute("forceDisable", true)
+				root:SetAttribute("disableMouseLock", true)
+				mouse.Icon = ""
+				boundKeys.Value = ""
+				return true
+			else
+				boundKeys.Value = references.Profile.binds.Misc["Mouse Lock"].Value
+				mouseLockController:SetAttribute("forceEnable", true)
+				root:SetAttribute("disableMouseLock", true)
+				mouse.Icon = ""
+			end
+		end,
+
+		["startPitchWear"] = function(player, limbs)
+			if localPlayer ~= player then
+				for _,v in next, limbs do
+					if player.Character:FindFirstChild(v) then
+						local limb = player.Character[v]
+						local orientation = player.Character.HumanoidRootPart.CFrame - player.Character.HumanoidRootPart.CFrame.Position
+
+						local part = references.Main.effects.wear:Clone()
+						part.Parent = workspace.game.debug
+						part.Name = player.Name .. "_wear"
+						part.CFrame = CFrame.new(Vector3.new(limb.Position.X, 0.568, limb.Position.Z)) * orientation
+
+						maid[limb.Name .. "_update"] = services.RunService.RenderStepped:Connect(function()
+							part.attachment1.WorldPosition = Vector3.new(limb.Position.X, 0.371, limb.Position.Z)
+						end)
+					end
+				end
+			end
+		end,
+
+		["endPitchWear"] = function(player)
+			if localPlayer ~= player then
+				maid:DoCleaning()
+
+				for _,v in next, workspace.game.debug:GetChildren() do
+					if v.Name == player.Name .. "_wear" then
+						task.delay(20, function()
+							local localMaid = maidClass.new()
+
+							local value = Instance.new("NumberValue")
+							value.Value = 0
+
+							localMaid:GiveTask(value)
+							services.TweenService:Create(value, TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Value = 1}):Play()
+
+							localMaid["tween"] = services.RunService.RenderStepped:Connect(function()
+								if v:FindFirstChild("beam") then
+									v.beam.Transparency = NumberSequence.new({
+										NumberSequenceKeypoint.new(0, value.Value),
+										NumberSequenceKeypoint.new(0.5, value.Value),
+										NumberSequenceKeypoint.new(1, value.Value)
+									})
+								end
+							end)
+
+							task.wait(1.15)
+							localMaid:DoCleaning()
+
+							task.wait(1)
+							v:Destroy()
+						end)
+					end
+				end
+			end
+		end,
+		
+		["celebration"] = function(state)
+			if state == "start" then
+				visuals.celebrations:SetAttribute("toggle", true)
+			else
+				visuals.celebrations:SetAttribute("toggle", false)
+			end
+		end,
+		
+		["shutdown"] = function()
+			references.PlayerGui.kick.Enabled = true
+			references.PlayerGui.kick.main.title.Text = "RECONNECTING"
+			references.PlayerGui.kick.main.description.Text = "Migrating to latest update"
+			services.TweenService:Create(references.PlayerGui.kick.background, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+			task.wait(0.25)
+			services.TweenService:Create(references.PlayerGui.kick.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {GroupTransparency = 0, Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+
+			services.RunService.RenderStepped:Connect(function()
+				services.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+			end)
+		end,
+
+		["kick"] = function(reason)
+			references.PlayerGui.kick.Enabled = true
+			references.PlayerGui.kick.main.description.Text = string.format("You have been kicked // %s", reason or "Unspecified reason")
+			services.TweenService:Create(references.PlayerGui.kick.background, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+			task.wait(0.25)
+			services.TweenService:Create(references.PlayerGui.kick.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {GroupTransparency = 0, Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+
+			services.RunService.RenderStepped:Connect(function()
+				services.StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
+			end)
+
+			for _,v in next, services.ReplicatedStorage:GetChildren() do
+				if v:IsA("Folder") then
+					v:Destroy()
+				end
+			end
+
+			for _,v in next, services.AssetService:GetChildren() do
+				if v then
+					v:Destroy()
+				end
+			end
+
+			for _,v in next, services.MaterialService:GetChildren() do
+				if v then
+					v:Destroy()
+				end
+			end
+
+			for _,v in next, workspace:GetChildren() do
+				if v:IsA("Folder") then
+					v:Destroy()
+				end
+			end
+		end,
+
+		["alert"] = function()
+			if not playerGui:FindFirstChild("Alert") then
+				local localMaid = maidClass.new()
+				local alert = references.Main.ui.alert:Clone()
+				alert.Parent = playerGui
+
+				if services.UserInputService.TouchEnabled then
+					alert.main.button.Text = "Tap to dismiss"
+				elseif services.UserInputService.GamepadEnabled then
+					alert.main.button.Text = "Press A to dismiss"
+
+					localMaid["inputBegan"] = services.UserInputService.InputBegan:Connect(function(inputObject, processedEvent)
+						if (processedEvent or not processedEvent) and inputObject.KeyCode == Enum.KeyCode.ButtonA then
+							references.Main.sounds.UI.Click:Play()
+							references.Main.sounds.UI.Alert:Stop()
+							localMaid:DoCleaning()
+						end
+					end)
+				end
+
+				references.Main.sounds.UI.Alert:Play()
+				localMaid:GiveTask(alert)
+
+				localMaid["mouseButton1Click"] = alert.main.button.MouseButton1Click:Connect(function()
+					references.Main.sounds.UI.Click:Play()
+					references.Main.sounds.UI.Alert:Stop()
+					localMaid:DoCleaning()
+				end)
+			end
+		end,
+
+		["marker"] = function(player, mouseHitPosition)
+			if localPlayer ~= player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and isTeammate(localPlayer, player) then
+				for _,v in next, workspace.game.markers:GetChildren() do
+					if v.Name == player.Name then
+						v:Destroy()
+					end
+				end
+
+				local marker = references.Main.ui.marker:Clone()
+				local position = Vector3.new(mouseHitPosition.X, marker.PrimaryPart.Position.Y, mouseHitPosition.Z)
+				local colour = player.TeamColor.Color
+
+				if player.Team and string.find(player.Team.Name, "Home") then
+					colour = teamService:getTeamColorFromTeam("Home")
+				elseif player.Team and string.find(player.Team.Name, "Away") then
+					colour = teamService:getTeamColorFromTeam("Away")
+				end
+
+				marker.Template.Cross.Cross.ImageColor3 = colour
+				marker.Beam.Beam.Color = ColorSequence.new(colour, colour)
+
+				marker.Config.Icon.Value = thumbnailService:get(player.UserId)
+				marker.Config.MarkerColor.Value = colour
+
+				marker.Config.Distance.Value = math.floor(((position - player.Character.HumanoidRootPart.Position).Magnitude) + 0.5)
+				marker.Config.Position.Value = marker.PrimaryPart.Position
+
+				marker.Parent = workspace.game.markers
+
+				marker:SetPrimaryPartCFrame(CFrame.new(position))
+				marker.Name = player.Name
+
+				marker.Config.Enabled.Value = true
+				services.Debris:AddItem(marker, 2)
+			end
+		end,
+
+		["lightning"] = function(position)
+			local part = Instance.new("Part", workspace.game.debug)
+			part.Size = Vector3.new(0.1, 0.1, 0.1)
+			part.Anchored = true
+			part.CanCollide = false
+			part.Locked = true
+			part.Transparency = 1
+			part.CFrame = CFrame.new(position)
+
+			local burn = references.Main.effects.burn:Clone()
+			burn.Parent = workspace.game.debug
+			burn.Position = Vector3.new(position.X, 0.373, position.Z)
+
+			services.Lighting.ColorCorrection.Brightness = 0.05
+			task.delay(0.125, function()
+				services.Lighting.ColorCorrection.Brightness = 0
+			end)
+
+			local attachment0 = Instance.new("Attachment", part)
+			attachment0.WorldPosition = position + Vector3.new(0, 200, 0)
+
+			local attachment1 = Instance.new("Attachment", part)
+			attachment1.WorldPosition = position
+
+			local newBolt = lightningBolt.new(attachment0, attachment1, 16)
+			newBolt.AnimationSpeed = 20
+			newBolt.PulseSpeed = 10
+			newBolt.PulseLength = 10
+			newBolt.FadeLength = 0.25
+			newBolt.Color = Color3.fromRGB(255, 221, 221)
+
+			local newSparks = lightningSparks.new(newBolt)
+			local newExplosion = lightningExplosion.new(position, 0.1, 10, Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 255, 255))
+
+			if (part.Position - (workspace.CurrentCamera.CFrame.Position * Vector3.new(1, 0, 1))).Magnitude <= 85 then
+				sounds:load({
+					directory = part,
+					soundId = references.Main.sounds.Weather.Thunder["Lightning Close"].SoundId,
+					rollOffMaxDistance = 500000,
+					rollOffMinDistance = 50,
+					volume = 1,
+					play = true
+				})
+			else
+				sounds:load({
+					directory = part,
+					soundId = references.Main.sounds.Weather.Thunder["Lightning Far"].SoundId,
+					rollOffMaxDistance = 50000,
+					rollOffMinDistance = 50,
+					volume = 1,
+					play = true
+				})
+			end
+
+			task.delay(0.2, function()
+				newBolt:Destroy()
+				newSparks:Destroy()
+				newExplosion:Destroy()
+			end)
+
+			task.delay(5, function()
+				part:Destroy()
+				services.TweenService:Create(burn.SurfaceGui.ImageLabel, TweenInfo.new(10, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+				task.wait(10)
+				burn:Destroy()
+			end)
+		end,
+
+		["levelUp"] = function(level)
+			if not levelUpDebounce then
+				levelUpDebounce = true
+				references.Main.sounds.UI.Swipe:Play()
+
+				playerGui.main.levelUp.Visible = true
+				playerGui.main.levelUp.level.TextTransparency = 1
+				playerGui.main.levelUp.level.Text = tostring(level)
+				playerGui.main.levelUp.level.Position = UDim2.new(0.5, 0, 1, 10)
+				playerGui.main.levelUp.label.Position = UDim2.new(0.5, -20, 0, 0)
+
+				_G._services.TweenService:Create(playerGui.main.levelUp.label, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0.5, 0, 0, 0)}):Play()
+				_G._services.TweenService:Create(playerGui.main.levelUp.label.UIGradient, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Offset = Vector2.new(1, 0)}):Play()
+				task.wait(0.25)
+				
+				_G._services.TweenService:Create(playerGui.main.levelUp.level, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 0, Position = UDim2.new(0.5, 0, 1, -10)}):Play()
+				task.wait(3)
+				
+				_G._services.TweenService:Create(playerGui.main.levelUp.level, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1, Position = UDim2.new(0.5, 0, 1, 10)}):Play()
+				task.wait(0.25)
+				
+				_G._services.TweenService:Create(playerGui.main.levelUp.label, TweenInfo.new(0.25, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextTransparency = 1}):Play()
+				task.wait(0.25)
+				
+				playerGui.main.levelUp.level.TextTransparency = 0
+				playerGui.main.levelUp.level.Position = UDim2.new(0.5, 0, 1, -10)
+				playerGui.main.levelUp.label.Position = UDim2.new(0.5, 0, 0, 0)
+				playerGui.main.levelUp.label.TextTransparency = 0
+				playerGui.main.levelUp.label.UIGradient.Offset = Vector2.new(-1, 0)
+				playerGui.main.levelUp.Visible = false
+				levelUpDebounce = false
+			end
+		end,
+		
+		["message"] = function(message, lifeTime)
+			if not messageDebounce then
+				messageDebounce = true
+				playerGui.main.message.label.Text = message
+				playerGui.main.message.label.UIGradient.Rotation = 0
+				playerGui.main.message.label.UIGradient.Offset = Vector2.new(-1, 0)
+				playerGui.main.message.label.Size = UDim2.new(0, playerGui.main.message.AbsoluteSize.X, 0, playerGui.main.message.AbsoluteSize.Y)
+
+				_G._services.TweenService:Create(playerGui.main.message.label.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Offset = Vector2.new(1, 0)}):Play()
+
+				task.wait(lifeTime or 3.5)
+				playerGui.main.message.label.UIGradient.Offset = Vector2.new(-1, 0)
+				playerGui.main.message.label.UIGradient.Rotation = 180
+				_G._services.TweenService:Create(playerGui.main.message.label.UIGradient, TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Offset = Vector2.new(1, 0)}):Play()
+
+				task.wait(0.6)
+				playerGui.main.message.label.UIGradient.Offset = Vector2.new(-1, 0)
+				playerGui.main.message.label.UIGradient.Rotation = 0
+				messageDebounce = false
+			end
+		end,
+		
+		["takePrompt"] = function(folder)
+			if not takePrompts[folder.Name] and not references.Main.cards.red:FindFirstChild(localPlayer.Name) then
+				local class = take.new(folder)
+				takePrompts[folder.Name] = class
+			end
+		end,
+		
+		["takeClear"] = function(key)
+			if takePrompts[key] then
+				takePrompts[key]:clear()
+				takePrompts[key] = nil
+			end
+		end,
+		
+		["bindMovement"] = function(status)
+			if status == "freeze" then
+				local controls = playerModuleScript:GetControls()
+				
+				if controls then
+					controls:Disable()
+				end
+				
+				localPlayer.Character:SetAttribute("freezeMovement", true)
+				_G._services.ContextActionService:BindAction(
+					freezeMovement,
+					function() return Enum.ContextActionResult.Sink end,
+					false,
+					unpack(Enum.PlayerActions:GetEnumItems())
+				)
+			else
+				local controls = playerModuleScript:GetControls()
+
+				if controls then
+					controls:Enable()
+				end
+				
+				localPlayer.Character:SetAttribute("freezeMovement", nil)
+				_G._services.ContextActionService:UnbindAction(freezeMovement)
+			end
+		end,
+		
+		["moveTo"] = function(position)
+			local localMaid = maidClass.new()
+			
+			localPlayer.Character.Humanoid:SetAttribute("moveTo", true)
+			localPlayer.Character.Humanoid:MoveTo(position)
+			
+			localMaid["moveToFinished"] = localPlayer.Character.Humanoid.MoveToFinished:Connect(function(reached)
+				if reached == true then
+					localMaid:DoCleaning()
+					return true
+				end
+			end)
+			
+			for index = 1, 10 do
+				if not localMaid["moveToFinished"] then
+					break
+				end
+				
+				task.wait(0.5)
+			end
+			
+			if localMaid["moveToFinished"] then
+				localMaid:DoCleaning()
+				return true
+			end
+		end,
+
+		["trip"] = function()
+			clientEngine:SetAttribute("Ragdoll", true)
+			task.wait(math.random(1.5, 3))
+			clientEngine:SetAttribute("Ragdoll", false)
+		end,
+
+		["pull"] = function()
+			movementController:SetAttribute("canSprint", false)
+			localPlayer.Character.Humanoid.WalkSpeed = services.StarterPlayer.CharacterWalkSpeed - 5
+
+			task.wait(math.random(2, 3))
+
+			movementController:SetAttribute("canSprint", true)
+			localPlayer.Character.Humanoid.WalkSpeed = services.StarterPlayer.CharacterWalkSpeed
+		end,
+
+		["ragdoll"] = function()
+			clientEngine:SetAttribute("Ragdoll", true)
+		end,
+
+		["unragdoll"] = function()
+			clientEngine:SetAttribute("Ragdoll", false)
+		end,
+		
+		["handshake"] = function(cipher)	
+			local sizes = {}
+			for i, limb in pairs(localPlayer.Character:GetChildren()) do
+				if limb:IsA("BasePart") then
+					for i, v in pairs(limbs) do
+						if string.match(limb.Name, v) then
+							local dictionaryVector = {limb.Size.X, limb.Size.Y, limb.Size.Z}
+							sizes[limb.Name] = dictionaryVector
+						end
+					end
+				end
+			end
+			if localPlayer.Character.Parent ~= workspace then
+				sizes = nil
+			end
+			return services.HttpService:JSONEncode({
+				key = cipher,
+				WalkSpeed = localPlayer.Character.Humanoid.WalkSpeed,
+				limbSizes = sizes
+			})
+		end,
+	}
+	
+	for index, value in next, tasks do
+		network:add(index, value)
+	end
+end
+
+return config
