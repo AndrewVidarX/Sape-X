@@ -1,0 +1,1912 @@
+--[[  Services  ]]------------------------------------------------------------------
+
+local engine = require(game:GetService("ReplicatedStorage").engine)
+local global = engine:load("Global")
+
+engine:load("Ping")()
+engine:_init()
+
+local references = engine.References
+local services = engine.Services
+
+local network = engine:load("Network").new()
+local celebration = engine:load("Celebration")
+local objectives = engine:load("Objectives")
+local sessions = engine:load("Sessions")
+local teleporter = engine:load("Teleport")
+local maidClass = engine:load("Maid")
+local sounds = engine:load("Sounds")
+local ragdoll = engine:load("Ragdoll")
+local offside = engine:load("Offside")
+local foul = engine:load("Foul")
+local glt = engine:load("GLT")
+local subscriptionService = engine:load("SubscriptionService", "utils")
+local formatNumber = engine:load("FormatNumber", "utils")
+
+local regions = engine:load("Regions", "utils")
+local whitelist = engine:load("Whitelist", "utils")
+local modules = script.Parent:WaitForChild("modules")
+local gkSpaceMaid = maidClass.new()
+
+local activeSessions = {
+	ballSpawnerConstructor = sessions.new("ballSpawner"),
+	ballSpawnerSession = sessions:create("ballSpawner"),
+
+	stadiumSelectorConstructor = sessions.new("stadiumSelector"),
+	stadiumSelectorSession = sessions:create("stadiumSelector"),
+
+	matchSettingsConstructor = sessions.new("editMatchSettings"),
+	matchSettingsSession = sessions:create("editMatchSettings")
+}
+
+--[[  React Config  ]]------------------------------------------------------------------
+
+local firstTouchCooldown = 0.7
+local ankleCooldown = 0.02
+local maxPing = global._maxPing
+local timers = {}
+local cooldowns = {}
+
+--[[  Functions  ]]------------------------------------------------------------------
+
+local function ban(player, reason)
+	local config: BanConfigType = {
+		UserIds = {player.UserId},
+		Duration = -1,
+		DisplayReason = reason,
+		PrivateReason = reason,
+		ExcludeAltAccounts = false,
+		ApplyToUniverse = true
+	}
+
+	local success, errorMessage = pcall(function()
+		return _G._services.Players:BanAsync(config)
+	end)
+
+	print(success, errorMessage)
+end
+
+local function isTeammate(player, target)
+	if services.Players:GetPlayerFromCharacter(target) then
+		local plr = services.Players:GetPlayerFromCharacter(target)
+
+		if (player.Team.Name == "Home" and plr.Team.Name == "Home") or (player.Team.Name == "Home" and plr.Team.Name == "-Home GK") or (player.Team.Name == "-Home GK" and plr.Team.Name == "Home")  or (player.Team.Name == "Home" and plr.Team.Name == "Home GK") or (player.Team.Name == "Home GK" and plr.Team.Name == "Home") or (player.Team.Name == "Away" and plr.Team.Name == "Away") or (player.Team.Name == "Away" and plr.Team.Name == "-Away GK") or (player.Team.Name == "-Away GK" and plr.Team.Name == "Away") or (player.Team.Name == "Away" and plr.Team.Name == "Away GK") or (player.Team.Name == "Away GK" and plr.Team.Name == "Away")  then
+			return true
+		else
+			return false
+		end
+	else
+		return false
+	end
+end
+
+local function isOnPitch(part)
+	return part.Position.X <= workspace.pitch.bounds.x.max.Position.X and part.Position.X >= workspace.pitch.bounds.x.min.Position.X and part.Position.Z <= workspace.pitch.bounds.z.max.Position.Z and part.Position.Z >= workspace.pitch.bounds.z.min.Position.Z
+end
+
+local function isSolidObject(part)
+	local solidObjects = {"grass", "outer", "wall", "frame", "collide", "support", "support main", "support top", "ropes"}
+	return table.find(solidObjects, string.lower(part.Name))
+end
+
+--[[  Region  ]]------------------------------------------------------------------
+
+task.spawn(function()
+	if not services.Players:FindFirstChildWhichIsA("Player") then
+		local connection
+
+		connection = services.Players.PlayerAdded:Connect(function(player)
+			local country = services.LocalizationService:GetCountryRegionForPlayerAsync(player)
+			references.Main.config.Region.Value = country and regions[country] or "United States"
+			references.Main.config.Flag.Value = country
+			connection:Disconnect()
+		end)
+	else
+		local player = services.Players:FindFirstChildWhichIsA("Player")
+		local country = services.LocalizationService:GetCountryRegionForPlayerAsync(player)
+		references.Main.config.Region.Value = country and regions[country] or "United States"
+		references.Main.config.Flag.Value = country
+	end
+end)
+
+--[[  Subscription  ]]------------------------------------------------------------------
+
+local function getSubscriptionStatus(player, subscriptionId)
+	local subscriptionStatus = subscriptionService:getSubscriptionStatus(player, subscriptionId)
+	if subscriptionStatus.IsSubscribed then
+		local profile = references.Profiles:WaitForChild(tostring(player.UserId), 100)
+		player:SetAttribute("hasRFPremium", true)
+		if profile then
+			profile.stats.LastRenewal.Value = tostring(tick())
+			profile.stats.Cash.Value += 1000
+		end
+	end
+end
+
+local function onPromptSubscriptionPurchaseFinished(player: Player, subscriptionId: string, didTryPurchasing: boolean)
+	getSubscriptionStatus(player, subscriptionId)
+	if didTryPurchasing then
+		task.delay(10, function()
+			getSubscriptionStatus(player, subscriptionId)
+		end)
+	end
+end
+
+_G._services.MarketplaceService.PromptSubscriptionPurchaseFinished:Connect(onPromptSubscriptionPurchaseFinished)
+
+--[[  Developer Products  ]]------------------------------------------------------------------
+
+local purchaseHistoryStore = services.DataStoreService:GetDataStore("PurchaseHistory")
+local monetization = engine:load("Monetization", "utils")
+local developerProducts = {}
+
+for productName, productData in next, monetization.developerProducts do
+	if productName and productData and productData["onPurchaseGranted"] then
+		developerProducts[tostring(productData.productId)] = productData.onPurchaseGranted
+	end
+end
+
+local function processReceipt(receiptInfo)
+	local playerProductKey = receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId
+	local purchased = false
+	local success, errorMessage = pcall(function()
+		purchased = purchaseHistoryStore:GetAsync(playerProductKey)
+	end)
+
+	if success and purchased then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	elseif not success then
+		error("Data store error:" .. errorMessage)
+	end
+
+	local player = services.Players:GetPlayerByUserId(receiptInfo.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local handler = developerProducts[tostring(receiptInfo.ProductId)]
+	local success, result = pcall(handler, receiptInfo, player)
+
+	if not success or not result then
+		warn("Error occurred while processing a product purchase")
+		print("\nProductId:", receiptInfo.ProductId)
+		print("\nPlayer:", player)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local success, errorMessage = pcall(function()
+		purchaseHistoryStore:SetAsync(playerProductKey, true)
+	end)
+
+	if not success then
+		error("Cannot save purchase data: " .. errorMessage)
+	end
+
+	return Enum.ProductPurchaseDecision.PurchaseGranted
+end
+
+services.MarketPlaceService.ProcessReceipt = processReceipt
+
+--[[  Network  ]]------------------------------------------------------------------
+
+local tasks = {
+	["networkOwner"] = function(player, args)
+		local ping = player:WaitForChild("Ping", 100)
+
+		if (ping.Value >= maxPing and (args.reactType and args.reactType ~= "goalkeeper" or not args.reactType) and player.UserId ~= 2731804921 and player.UserId ~= 1908891988) or args.ball:GetAttribute("catch") or args.ball.Anchored then
+			return false
+		end
+
+		-- Cheat checks
+		--[[if player.Character:FindFirstChild("HumanoidRootPart") and args.ball and args.reactType ~= "goalkeeper" and (args.ball.Position - player.Character.HumanoidRootPart.Position).Magnitude >= 150 then
+			ban(player, "Unauthorised React Detected")
+			return false
+		end
+		if args.cframe and args.ball and args.reactType ~= "goalkeeper" and (args.ball.Position - args.cframe.Position).Magnitude >= 180 then
+			ban(player, "Unauthorised React Detected")
+			return false
+		end
+		if player.Character:FindFirstChild("HumanoidRootPart") and args.ball and args.reactType == "goalkeeper" and (args.ball.Position - player.Character.HumanoidRootPart.Position).Magnitude >= 150 then
+			ban(player, "Unauthorised Goalkeeping Detected")
+			return false
+		end
+		if args.cframe and args.ball and args.reactType == "goalkeeper" and (args.ball.Position - args.cframe.Position).Magnitude >= 180 then
+			ban(player, "Unauthorised Goalkeeping Detected")
+			return false
+		end]]
+
+		-- Sanity checks
+
+		if not args.ball or (args.ball and not args.ball.Parent) or (args.ball and args.ball.Parent and not args.ball:FindFirstChild("properties")) then
+			return false
+		end
+
+		--player
+		if player.Character:FindFirstChild("HumanoidRootPart") and args.ball and args.reactType ~= "goalkeeper" and not args.ignoreReactDecline and (args.ball.Position - player.Character.HumanoidRootPart.Position).Magnitude >= 25 then
+			return false
+		end
+		if args.cframe and args.ball and args.reactType ~= "goalkeeper" and not args.ignoreReactDecline and (args.ball.Position - args.cframe.Position).Magnitude >= 30 then
+			return false
+		end
+
+		--goalkeeper
+		if player.Character:FindFirstChild("HumanoidRootPart") and args.ball and args.reactType == "goalkeeper" and (args.ball.Position - player.Character.HumanoidRootPart.Position).Magnitude >= 50 then
+			return false
+		end
+		if args.cframe and args.ball and args.reactType == "goalkeeper" and (args.ball.Position - args.cframe.Position).Magnitude >= 60 then
+			return false
+		end
+
+		if (args.reactType and args.reactType ~= "goalkeeper" or not args.reactType) and args.ball.properties:FindFirstChild("firstTouch") and args.ball.properties.firstTouch.Value == player.UserId then
+			local override = false
+
+			if ((args.ball.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude > 80 and args.block) or (args.ball.Position.Y > 7 and (args.block or args.chest)) then
+				override = true
+			end
+
+			if not override then
+				return
+			end
+		end
+
+		if args.reactType and args.reactType == "goalkeeper" and string.find(player.Team.Name, "GK") and _G._references.Main.config.Override:FindFirstChild("Goal") then
+			_G._references.Main.config.Override.Goal:SetAttribute("save", true)
+		end
+
+		if args.reactType and args.reactType == "goalkeeper" and string.find(player.Team.Name, "GK") and _G._references.Main.config.Delay:FindFirstChild("NoReact") then
+			_G._references.Main.config.Delay.NoReact:Destroy()
+		elseif not (args.reactType and args.reactType == "goalkeeper") and _G._references.Main.config.Delay:FindFirstChild("NoReact") then
+			return false
+		end
+
+		while not args.ball:FindFirstChild("properties") do
+			task.wait()
+		end
+
+		if (args.reactType and args.reactType ~= "goalkeeper") and string.find(player.Team.Name, "GK") and _G._references.Main.config.Override:FindFirstChild("Foul") and _G._references.Main.config.Override:FindFirstChild("Offender") and _G._references.Main.config.Override.Offender.Value == player then
+			_G._references.Main.config.Override.Foul:Destroy()
+			_G._references.Main.config.Override.Offender:Destroy()
+		end
+
+		if args.ballFirst and _G._references.Main.config.Override:FindFirstChild("Foul") and _G._references.Main.config.Override:FindFirstChild("Offender") and _G._references.Main.config.Override.Offender.Value == player then
+			_G._references.Main.config.Override.Foul:Destroy()
+			_G._references.Main.config.Override.Offender:Destroy()
+		end
+
+		if (args.ball.properties:FindFirstChild("decline") or args.ball.properties:FindFirstChild("ankle")) and (args.reactType and args.reactType ~= "goalkeeper" or not args.reactType) then
+			local override = false
+
+			if ((args.ball.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude > 80 and args.block) or (args.ball.Position.Y > 7 and (args.block or args.chest)) then
+				override = true
+			end
+
+			if args.ball.properties:FindFirstChild("ankle") and not override then
+				return "ankle"
+			elseif not args.ball.properties:FindFirstChild("ankle") and not override then
+				return false
+			end
+		else
+			if args.ball:GetNetworkOwner() and args.ball:GetNetworkOwner():FindFirstChild("Ping") and (args.ball:GetNetworkOwner().Ping.Value >= 280 or ping.Value >= 280) and not args.forceNetworkOwner then
+				args.forceNetworkOwner = false
+			else
+				args.forceNetworkOwner = true
+			end
+
+			if _G._references.Main.config.Override:FindFirstChild("Goal") and _G._references.Main.config.Delay:FindFirstChild("NoReact") and not (args.reactType and args.reactType == "goalkeeper") then
+				_G._references.Main.config.Override.Goal:Destroy()
+				_G._references.Main.config.Delay.NoReact:Destroy()
+				services.ServerScriptService.modules.system.goal:ClearAllChildren()
+			end
+
+			if not (args.reactType and args.reactType ~= "goalkeeper") then
+				_G._references.Main.config.Offside:ClearAllChildren()
+			end
+
+			if args.ball:GetAttribute("network") ~= player.UserId and not args.forceNetworkOwner then
+				if args.ball:GetNetworkOwner() and args.ball:GetAttribute("networkOwner") ~= 0 then
+					args.ball:SetAttribute("network", player.UserId)
+					args.ball:SetAttribute("possessor", 0)
+
+					local decline = Instance.new("BoolValue", args.ball.properties)
+					decline.Name = "decline"
+					decline.Value = true
+
+					services.Debris:AddItem(decline, firstTouchCooldown)
+
+					local argsFolder = Instance.new("Folder")
+					argsFolder.Name = "args"
+
+					for key, value in next, args do
+						local valueType = "ObjectValue"
+
+						if typeof(value) == "Instance" then
+							valueType = "ObjectValue"
+						elseif typeof(value) == "Vector3" then
+							valueType = "Vector3Value"
+						elseif typeof(value) == "CFrame" then
+							valueType = "CFrameValue"
+						elseif typeof(value) == "number" then
+							valueType = "NumberValue"
+						elseif typeof(value) == "boolean" then
+							valueType = "BoolValue"
+						elseif typeof(value) == "string" then
+							valueType = "StringValue"
+						end
+
+						local newValue = Instance.new(valueType)
+						newValue.Name = key
+						newValue.Value = value
+						newValue.Parent = argsFolder
+					end
+
+					local loaded = Instance.new("BoolValue")
+					loaded.Name = "loaded"
+					loaded.Value = true
+					loaded.Parent = argsFolder
+
+					argsFolder.Parent = args.ball.properties
+					services.Debris:AddItem(argsFolder, firstTouchCooldown)
+				else
+					args.ball:SetAttribute("network", player.UserId)
+					args.ball:SetAttribute("possessor", 0)
+
+					if not args.keepBodyVelocities then
+						for _,v in next, args.ball:GetChildren() do
+							if v and v:IsA("BodyVelocity") then
+								v:Destroy()
+							end
+						end
+					end
+
+					if not args.conserveAngularVelocity then
+						for _,v in next, args.ball:GetChildren() do
+							if v and v:IsA("BodyAngularVelocity") then
+								v:Destroy()
+							end
+						end
+					end
+
+					local decline = Instance.new("BoolValue", args.ball.properties)
+					decline.Name = "decline"
+					decline.Value = true
+
+					local bodyVelocity = Instance.new("BodyVelocity", args.ball)
+					bodyVelocity.MaxForce = args.maxForce or Vector3.one * math.huge
+					bodyVelocity.Velocity = Vector3.new(math.min(args.vector.X, 140), math.min(args.vector.Y, 125), math.min(args.vector.Z, 140))
+					bodyVelocity.Velocity = Vector3.new(math.max(-140, args.vector.X), math.max(-125, args.vector.Y), math.max(-140, args.vector.Z))
+
+					services.Debris:AddItem(decline, firstTouchCooldown)
+					services.Debris:AddItem(bodyVelocity, 0.3)
+
+					if args.curve then
+						local maid = maidClass.new()
+
+						local power = Vector2.new(args.vector.X, args.vector.Z).Magnitude
+						local height = args.vector.Y
+
+						local curvePower = 50 * (args.ball.CustomPhysicalProperties.Density * 10)
+						local angularSpeed = 50
+						local angularVelocity = Vector3.new()
+
+						angularVelocity += Vector3.new(args.vector.Z, 0, -args.vector.X).Unit * -power / 5
+
+						if args.direction == "left" then
+							angularVelocity += Vector3.new(0, angularSpeed, 0)
+						elseif args.direction == "right" then
+							angularVelocity += Vector3.new(0, -angularSpeed, 0)
+						end
+
+						local curve = angularVelocity:Cross(args.vector)
+
+						if curve.Magnitude > 0 then
+							curve = curve.Unit * curvePower
+						end
+
+						curve *= Vector3.new(1, 0.5, 1)
+
+						if (args.spinType and args.spinType == "backspin") then
+							if args.direction == "none" then
+								angularVelocity *= Vector3.new(3, 3, 3)
+							else
+								angularVelocity *= Vector3.new(-1, -2, -1)
+							end
+						end
+
+						curve *= Vector3.new(0.5, 1, 0.5)
+						angularVelocity *= 1.5
+
+						local bodyAngularVelocity = Instance.new("BodyAngularVelocity", args.ball)
+						bodyAngularVelocity.AngularVelocity = angularVelocity
+						bodyAngularVelocity.MaxTorque = Vector3.one * math.huge
+						services.Debris:AddItem(bodyAngularVelocity, 0.3)
+
+						local bodyForce = Instance.new("BodyForce", args.ball)
+						bodyForce.Force = curve
+
+						local expirationTime = power / 120
+
+						if args.direction == "left" or args.direction == "right" then
+							services.TweenService:Create(
+								bodyForce,
+								TweenInfo.new(expirationTime, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+								{Force = curve * Vector3.new(0.25, -0.5, 0.25)}
+							):Play()
+						else
+							services.TweenService:Create(
+								bodyForce,
+								TweenInfo.new(expirationTime * 1.15, Enum.EasingStyle.Linear, Enum.EasingDirection.Out),
+								{Force = curve * Vector3.new(0.25, -0.25, 0.25)}
+							):Play()
+						end
+
+						services.Debris:AddItem(bodyForce, 0.6)
+					end
+
+					if args.spinType and args.spinType == "backspin" and not args.curve then
+						local maid = maidClass.new()
+
+						local function onTouched(hit)
+							if isSolidObject(hit) then
+								maid:DoCleaning()
+								args.ball.AssemblyLinearVelocity /= Vector3.new(1.35, 1, 1.35)
+							end
+						end
+
+						maid["onTouched"] = args.ball.Touched:Connect(onTouched)
+						maid["onTouchEnded"] = args.ball.TouchEnded:Connect(onTouched)
+					end
+				end
+
+				return true
+			else
+				local origin = args.ball.CFrame
+				local assemblyLinearVelocity, assemblyAngularVelocity = args.ball.AssemblyLinearVelocity, args.ball.AssemblyAngularVelocity
+				local profile = references.Profiles:WaitForChild(tostring(player.UserId), 100)
+				local networkOwner = args.ball:GetNetworkOwner()
+				local connection = nil
+				local bodyPosition = nil
+				local alignOrientation = nil
+				local previousOwner = args.ball:GetAttribute("possessor")
+				local previousOwnerProfile
+
+				if previousOwner ~= 0 then
+					local playerFound = false
+
+					for _, plr in next, services.Players:GetPlayers() do
+						if plr and plr.UserId == previousOwner then
+							playerFound = true
+						end
+					end
+
+					if playerFound then
+						previousOwnerProfile = references.Profiles:WaitForChild(tostring(previousOwner), 100)
+					end
+				end
+
+				--if args.ball:GetAttribute("possessor") ~= 0 and global._useReplicators then
+				--	for _, replicator in next, workspace.game.replication:GetChildren() do
+				--		if replicator and replicator.Name == tostring(args.ball:GetAttribute("possessor")) and replicator:FindFirstChild("reference") and replicator.reference.Value == args.ball then
+				--			connection = services.RunService.Heartbeat:Connect(function()
+				--				args.ball.CFrame = replicator.CFrame
+				--			end)
+				--		end
+				--	end
+				--elseif not (args.reactType and args.reactType == "goalkeeper") then
+				--	bodyPosition = Instance.new("BodyPosition")
+				--	bodyPosition.D = 5000
+				--	bodyPosition.P = 10000000
+				--	bodyPosition.MaxForce = Vector3.one * 10000
+				--	bodyPosition:SetAttribute("origin", "server")
+				--	bodyPosition.Parent = args.ball
+				--	bodyPosition.Position = origin.Position
+
+				--	alignOrientation = Instance.new("AlignOrientation", args.ball)
+				--	alignOrientation.Mode = Enum.OrientationAlignmentMode.OneAttachment
+				--	alignOrientation.Attachment0 = args.ball.centre
+				--	alignOrientation.MaxTorque = 10000
+				--	alignOrientation.Responsiveness = 200
+				--	alignOrientation.Enabled = true
+				--	alignOrientation.RigidityEnabled = true
+				--	alignOrientation.ReactionTorqueEnabled = false
+				--	alignOrientation:SetAttribute("origin", "server")
+				--	alignOrientation.Parent = args.ball
+				--	alignOrientation.CFrame = origin
+
+				--	connection = services.RunService.Heartbeat:Connect(function()
+				--		bodyPosition.Position = origin.Position
+				--		alignOrientation.CFrame = origin
+				--	end)
+				--end
+
+				if args.reactType and args.reactType == "goalkeeper" and references.Main.config.AutoSystem.Value then
+					glt:create(args.cframe)
+
+					if previousOwnerProfile and game.PrivateServerOwnerId == 0 and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+						local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+
+						if doubleXP then
+							previousOwnerProfile.level.XP.Value += 10
+						else
+							previousOwnerProfile.level.XP.Value += 5
+						end
+
+						previousOwnerProfile.stats["Accurate Shots"].Value += 1
+					end
+
+					if string.find(player.Team.Name, "Home") then
+						references.Main.config.Stats.Home.Saves.Value += 1
+						references.Main.config.Stats.Away["Accurate Shots"].Value += 1
+					elseif string.find(player.Team.Name, "Away") then
+						references.Main.config.Stats.Away.Saves.Value += 1
+						references.Main.config.Stats.Home["Accurate Shots"].Value += 1
+					end
+
+					if game.PrivateServerOwnerId == 0 and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+						profile.stats.Saves.Value += 1
+
+						if _G._references.Main.objectives:FindFirstChild(tostring(player.UserId)) then
+							local playerObjectives = _G._references.Main.objectives:WaitForChild(tostring(player.UserId), 100)
+							local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+							local doublePoints = monetization.userOwnsPass(player, monetization.gamePasses["2x Points"].gamePassId)
+
+							if playerObjectives and profile then
+								for _,v in next, playerObjectives:GetChildren() do
+									if v and objectives._objectives[v.Name] then
+										local reference = v.Name
+										local objective = objectives._objectives[reference]
+
+										local function objectiveCompleted()
+											if doubleXP then
+												profile.level.XP.Value += objective._rewards.xp * 2
+												_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp * 2)), "success")
+											else
+												profile.level.XP.Value += objective._rewards.xp
+												_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp)), "success")
+											end
+											if doublePoints then
+												profile.stats.Cash.Value += objective._rewards.points * 2
+												_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points * 2)), "success")
+											else
+												profile.stats.Cash.Value += objective._rewards.points
+												_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points)), "success")
+											end
+										end
+
+										if string.find(string.lower(reference), "make") and string.find(string.lower(reference), "saves") then
+											if #v:GetChildren() < objective._repeat then
+												local boolValue = Instance.new("BoolValue")
+												boolValue.Name = tostring(#v:GetChildren() + 1)
+												boolValue.Parent = v
+
+												if tostring(boolValue.Name) == tostring(objective._repeat) then
+													v.Value = true
+													objectiveCompleted()
+												end
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				elseif references.Main.config.AutoSystem.Value then
+					references.Main.glt:ClearAllChildren()
+					args.ball:SetAttribute("save", nil)
+				end
+
+				if not (args.reactType and args.reactType == "goalkeeper") and not args.curve and global._useSmoothTransition then
+					local lifeTime = (ping.Value / 1000) / 0.45
+
+					if args.ball:GetNetworkOwner() and args.ball:GetNetworkOwner():FindFirstChild("Ping") and args.ball:GetNetworkOwner().Ping.Value >= ping.Value then
+						local newPing = args.ball:GetNetworkOwner():WaitForChild("Ping", 100)
+						lifeTime = (newPing.Value / 1000) / 0.45
+					elseif args.ball:GetAttribute("possessor") ~= 0 and services.Players[services.Players:GetNameFromUserIdAsync(args.ball:GetAttribute("possessor"))]:FindFirstChild("Ping") and services.Players[services.Players:GetNameFromUserIdAsync(args.ball:GetAttribute("possessor"))].Ping.Value >= ping.Value then
+						local newPing = services.Players[services.Players:GetNameFromUserIdAsync(args.ball:GetAttribute("possessor"))]:WaitForChild("Ping", 100)
+						lifeTime = (newPing.Value / 1000) / 0.45
+					end
+
+					local transition = Instance.new("IntValue", args.ball.properties)
+					transition.Name = "transition"
+					transition.Value = player.UserId
+					services.Debris:AddItem(transition, lifeTime)
+				end
+
+				if args.forceNetworkOwner then
+					local decline = Instance.new("BoolValue", args.ball.properties)
+					decline.Name = "decline"
+					decline.Value = true
+
+					services.Debris:AddItem(decline, firstTouchCooldown)
+				end
+
+				if previousOwner ~= 0 then
+					local firstTouchValue = Instance.new("IntValue")
+					firstTouchValue.Name = "firstTouch"
+					firstTouchValue.Value = previousOwner
+					firstTouchValue.Parent = args.ball.properties
+					services.Debris:AddItem(firstTouchValue, firstTouchCooldown * 1.5)
+				end
+
+				for _, plr in next, services.Players:GetPlayers() do
+					if plr and plr.UserId == previousOwner and args.ball:GetAttribute("lastTouchTime") and references.Main.config.AutoSystem.Value then
+						if string.find(plr.Team.Name, "Home") then
+							references.Main.config.Stats.Home.Timer.Value += math.floor(tick() - args.ball:GetAttribute("lastTouchTime"))
+						elseif string.find(plr.Team.Name, "Away") then
+							references.Main.config.Stats.Away.Timer.Value += math.floor(tick() - args.ball:GetAttribute("lastTouchTime"))
+						end
+
+						local total = references.Main.config.Stats.Home.Timer.Value + references.Main.config.Stats.Away.Timer.Value
+						local homePercentage = math.floor((references.Main.config.Stats.Home.Timer.Value / total) * 100)
+						local awayPercentage = 100 - homePercentage
+
+						references.Main.config.Stats.Home.Possession.Value = homePercentage
+						references.Main.config.Stats.Away.Possession.Value = awayPercentage
+					end
+				end
+
+				args.ball.CollisionGroup = "17_clientBall"
+				references.RemoteEvent:FireAllClients("collisionGroup", args.ball, "17_clientBall", player)
+
+				if args.penalty then
+					args.ball:SetAttribute("penalty", true)
+				else
+					args.ball:SetAttribute("penalty", nil)
+				end
+				if args.freeKick then
+					args.ball:SetAttribute("freeKick", true)
+				else
+					args.ball:SetAttribute("freeKick", nil)
+				end
+
+				if args.tackle and string.find(player.Team.Name, "Home") and references.Main.config.AutoSystem.Value then
+					references.Main.config.Stats.Home.Interceptions.Value += 1
+				elseif args.tackle and string.find(player.Team.Name, "Away") and references.Main.config.AutoSystem.Value then
+					references.Main.config.Stats.Away.Interceptions.Value += 1
+				end
+
+				if args.ball:GetAttribute("lastPass") then
+					for _, plr in next, services.Players:GetPlayers() do
+						if plr and plr.UserId == args.ball:GetAttribute("lastPass") then
+							if plr ~= player and ((string.find(player.Team.Name, "Home") and string.find(plr.Team.Name, "Home")) or (string.find(player.Team.Name, "Away") and string.find(plr.Team.Name, "Away"))) then
+								local lastPassProfile = references.Profiles:WaitForChild(tostring(args.ball:GetAttribute("lastPass")), 100)
+
+								if lastPassProfile and game.PrivateServerOwnerId == 0 and references.Main.config.AutoSystem.Value and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+									local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+
+									if doubleXP then
+										previousOwnerProfile.level.XP.Value += 10
+									else
+										previousOwnerProfile.level.XP.Value += 5
+									end
+
+									lastPassProfile.stats["Accurate Passes"].Value += 1
+								end
+
+								if string.find(player.Team.Name, "Home") and references.Main.config.AutoSystem.Value and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+									references.Main.config.Stats.Home["Accurate Passes"].Value += 1
+								elseif string.find(player.Team.Name, "Away") and references.Main.config.AutoSystem.Value and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+									references.Main.config.Stats.Away["Accurate Passes"].Value += 1
+								end
+
+								args.ball:SetAttribute("lastPassSession", nil)
+							elseif args.ball:GetAttribute("lastPassSession") then
+								args.ball:SetAttribute("lastPass", nil)
+								args.ball:SetAttribute("lastPassSession", nil)
+							end
+						end
+					end
+				end
+
+				if args.updateStats == "Passes" then
+					local lastPassSession = services.HttpService:GenerateGUID(false)
+
+					args.ball:SetAttribute("lastPass", player.UserId)
+					args.ball:SetAttribute("lastPassSession", lastPassSession)
+
+					task.delay(20, function()
+						if args.ball:GetAttribute("lastPass") and args.ball:GetAttribute("lastPass") == player.UserId and args.ball:GetAttribute("lastPassSession") and args.ball:GetAttribute("lastPassSession") == lastPassSession then
+							args.ball:SetAttribute("lastPass", nil)
+							args.ball:SetAttribute("lastPassSession", nil)
+						end
+					end)
+				end
+
+				args.ball:SetNetworkOwner(player)
+				args.ball:SetAttribute("network", 0)
+				args.ball:SetAttribute("lastTouch", player.UserId)
+				args.ball:SetAttribute("lastTouchTime", tick())
+				args.ball:SetAttribute("possessor", player.UserId)
+				args.ball:SetAttribute("networkOwner", player.UserId)
+				args.ball.network.owner.Value = player
+
+				if _G._services.ReplicatedStorage:FindFirstChild("physics") and _G._services.ReplicatedStorage.physics:FindFirstChild("network") then
+					_G._services.ReplicatedStorage.physics.network:Fire(args.ball, networkOwner, player)
+				end
+
+				if connection then
+					connection:Disconnect()
+				end
+
+				if bodyPosition and alignOrientation then
+					bodyPosition:Destroy()
+					alignOrientation:Destroy()
+				end
+
+				return "react"
+			end
+		end
+	end,
+
+	["catch"] = function(player, args)
+		local ping = player:WaitForChild("Ping", 100)
+
+		if args.ball:GetAttribute("catch") then
+			return false
+		end
+		
+	--[[if player.Character:FindFirstChild("HumanoidRootPart") and (args.ball.Position - player.Character.HumanoidRootPart.Position).Magnitude >= 150 then
+			ban(player, "Unauthorised Catch Detected")
+			return false
+		end
+		if args.cframe and (args.ball.Position - args.cframe.Position).Magnitude >= 180 then
+			ban(player, "Unauthorised Catch Detected")
+			return false
+		end]]
+		if player.Character:FindFirstChild("HumanoidRootPart") and (args.ball.Position - player.Character.HumanoidRootPart.Position).Magnitude >= 50 then
+			return false
+		end
+		if args.cframe and (args.ball.Position - args.cframe.Position).Magnitude >= 60 then
+			return false
+		end
+
+		if player.Character and player.Character:FindFirstChild("Ball") then
+			local centre = args.ball:WaitForChild("centre", 100)
+			local profile = references.Profiles:WaitForChild(tostring(player.UserId), 100)
+			local previousOwnerProfile
+
+			if args.ball:GetAttribute("possessor") ~= 0 then
+				previousOwnerProfile = references.Profiles:WaitForChild(tostring(args.ball:GetAttribute("possessor")), 100)
+			end
+
+			if not args.throwIn then
+				if _G._references.Main.config.Override:FindFirstChild("Goal") then
+					_G._references.Main.config.Override.Goal:SetAttribute("save", true)
+				end
+				if _G._references.Main.config.Delay:FindFirstChild("NoReact") then
+					_G._references.Main.config.Delay.NoReact:Destroy()
+				end
+			end
+			if string.find(player.Team.Name, "GK") and _G._references.Main.config.Override:FindFirstChild("Foul") and _G._references.Main.config.Override:FindFirstChild("Offender") and _G._references.Main.config.Override.Offender.Value == player then
+				_G._references.Main.config.Override.Foul:Destroy()
+				_G._references.Main.config.Override.Offender:Destroy()
+			end
+
+			if references.Main.config.AutoSystem.Value then
+				local function reset()
+					gkSpaceMaid:DoCleaning()
+
+					if args.ball and args.ball.Parent then
+						args.ball:SetAttribute("freeKick", nil)
+						args.ball:SetAttribute("penalty", nil)
+						args.ball:SetAttribute("catch", nil)
+						args.ball:SetAttribute("lastTouch", 0)
+						args.ball:SetAttribute("possessor", 0)
+						args.ball:SetAttribute("networkOwner", 0)
+						args.ball:SetAttribute("network", 0)
+						args.ball.network.owner.Value = nil
+						args.ball:SetNetworkOwner(nil)
+						args.ball.CanCollide = true
+
+						if _G._references.Main.config.Override:FindFirstChild("Goal") then
+							_G._references.Main.config.Override.Goal:Destroy()
+						end
+
+						if _G._references.Main.config.Delay:FindFirstChild("NoReact") then
+							_G._references.Main.config.Delay.NoReact:Destroy()
+						end
+
+						if args.resetVelocity then
+							args.ball.AssemblyLinearVelocity = Vector3.new()
+							args.ball.AssemblyAngularVelocity = Vector3.new()
+						end
+
+						if args.ball.design:FindFirstChildWhichIsA("BasePart") then
+							args.ball.design:FindFirstChildWhichIsA("BasePart").Transparency = 0
+						end
+						if player and player.Parent and player.Character and player.Character:FindFirstChild("Ball") and player.Character.Ball.design:FindFirstChildWhichIsA("BasePart") then
+							player.Character.Ball.design:FindFirstChildWhichIsA("BasePart").Transparency = 1
+						end
+
+						references.RemoteEvent:FireAllClients("ballModel", {
+							exclude = player,
+							ball = args.ball,
+							transparency = 0
+						})
+
+						for _,v in next, args.ball:GetChildren() do
+							if v:IsA("AlignPosition") then
+								v:Destroy()
+							end
+						end
+					end
+				end
+
+				if not args.throwIn then
+					if string.find(player.Team.Name, "GK") then
+						local reference = "home"
+
+						if string.find(player.Team.Name, "Away") then
+							reference = "away"
+						end
+
+						local side = workspace.game.regions[reference]
+						if not (player.Character:FindFirstChild("HumanoidRootPart").Position.X >= side.Position.X - (side.Size.X / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.X <= side.Position.X + (side.Size.X / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Y >= side.Position.Y - (side.Size.Y / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Y <= side.Position.Y + (side.Size.Y / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Z >= side.Position.Z - (side.Size.Z / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Z <= side.Position.Z + (side.Size.Z / 2)) then
+							reset()
+							return
+						end
+					else
+						reset()
+						return
+					end
+				else
+					local part = workspace.game.regions:WaitForChild("field")
+					if (player.Character:FindFirstChild("HumanoidRootPart").Position.X >= part.Position.X - (part.Size.X / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.X <= part.Position.X + (part.Size.X / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Y >= part.Position.Y - (part.Size.Y / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Y <= part.Position.Y + (part.Size.Y / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Z >= part.Position.Z - (part.Size.Z / 2) and player.Character:FindFirstChild("HumanoidRootPart").Position.Z <= part.Position.Z + (part.Size.Z / 2)) then
+						reset()
+						return
+					end
+				end
+
+				gkSpaceMaid["_CharacterAdded"] = player.CharacterAdded:Connect(function()
+					reset()
+				end)
+
+				gkSpaceMaid["_BallRemoving"] = workspace.game.balls.server.ChildRemoved:Connect(function(ball)
+					if ball == args.ball then
+						reset()
+					end
+				end)
+
+				gkSpaceMaid["_OnEvent"] = references.BindableEvent.Event:Connect(function(signal)
+					if signal and signal == "clearSpace" then
+						reset()
+					end
+				end)
+
+				gkSpaceMaid["_PlayerRemoving"] = services.Players.PlayerRemoving:Connect(function(plr)
+					if plr == player then
+						reset()
+					end
+				end)
+			end
+
+			if string.find(player.Team.Name, "GK") and references.Main.config.AutoSystem.Value and not args.throwIn and not references.Main.config.Penalties.Enabled.Value then
+				local reference = "home"
+
+				if string.find(player.Team.Name, "Away") then
+					reference = "away"
+				end
+
+				local function onTouched(hit)
+					if hit and hit.Parent and hit.Parent:FindFirstChild("Humanoid") and not hit:FindFirstAncestor("referee") and not hit:FindFirstAncestor("manager") and hit.Parent ~= player.Character then
+						if services.Players:GetPlayerFromCharacter(hit.Parent) then
+							local playerFromCharacter = services.Players:GetPlayerFromCharacter(hit.Parent)
+							local teleport = Instance.new("BoolValue", playerFromCharacter)
+							teleport.Name = "Teleport"
+							teleport.Value = true
+							services.Debris:AddItem(teleport, 3)
+						end
+
+						hit.Parent:SetPrimaryPartCFrame(workspace.game.space[reference].CFrame)
+					end
+				end
+
+				gkSpaceMaid[reference .. "_Touched"] = workspace.game.regions[reference].Touched:Connect(onTouched)
+				gkSpaceMaid[reference .. "_TouchEnded"] = workspace.game.regions[reference].TouchEnded:Connect(onTouched)
+
+				task.delay(6, function()
+					if gkSpaceMaid[reference .. "_Touched"] then
+						gkSpaceMaid:DoCleaning()
+					end
+				end)
+			end
+
+			args.ball.CollisionGroup = "17_clientBall"
+			references.RemoteEvent:FireAllClients("collisionGroup", args.ball, "17_clientBall", player)
+
+			if references.Main.config.AutoSystem.Value and not args.throwIn then
+				if previousOwnerProfile and game.PrivateServerOwnerId == 0 and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+					local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+
+					if doubleXP then
+						previousOwnerProfile.level.XP.Value += 10
+					else
+						previousOwnerProfile.level.XP.Value += 5
+					end
+
+					previousOwnerProfile.stats["Accurate Shots"].Value += 1
+				end
+				if string.find(player.Team.Name, "Home") then
+					references.Main.config.Stats.Home.Saves.Value += 1
+					references.Main.config.Stats.Away["Accurate Shots"].Value += 1
+				elseif string.find(player.Team.Name, "Away") then
+					references.Main.config.Stats.Away.Saves.Value += 1
+					references.Main.config.Stats.Home["Accurate Shots"].Value += 1
+				end
+				if game.PrivateServerOwnerId == 0 and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+					profile.stats.Saves.Value += 1
+
+					if _G._references.Main.objectives:FindFirstChild(tostring(player.UserId)) then
+						local playerObjectives = _G._references.Main.objectives:WaitForChild(tostring(player.UserId), 100)
+						local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+						local doublePoints = monetization.userOwnsPass(player, monetization.gamePasses["2x Points"].gamePassId)
+
+						if playerObjectives and profile then
+							for _,v in next, playerObjectives:GetChildren() do
+								if v and objectives._objectives[v.Name] then
+									local reference = v.Name
+									local objective = objectives._objectives[reference]
+
+									local function objectiveCompleted()
+										if doubleXP then
+											profile.level.XP.Value += objective._rewards.xp * 2
+											_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp * 2)), "success")
+										else
+											profile.level.XP.Value += objective._rewards.xp
+											_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp)), "success")
+										end
+										if doublePoints then
+											profile.stats.Cash.Value += objective._rewards.points * 2
+											_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points * 2)), "success")
+										else
+											profile.stats.Cash.Value += objective._rewards.points
+											_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points)), "success")
+										end
+									end
+
+									if string.find(string.lower(reference), "make") and string.find(string.lower(reference), "saves") then
+										if #v:GetChildren() < objective._repeat then
+											local boolValue = Instance.new("BoolValue")
+											boolValue.Name = tostring(#v:GetChildren() + 1)
+											boolValue.Parent = v
+
+											if tostring(boolValue.Name) == tostring(objective._repeat) then
+												v.Value = true
+												objectiveCompleted()
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+
+			args.ball:SetAttribute("freeKick", nil)
+			args.ball:SetAttribute("penalty", nil)
+			args.ball:SetAttribute("catch", player.UserId)
+			args.ball:SetAttribute("lastTouch", player.UserId)
+			args.ball:SetAttribute("possessor", player.UserId)
+			args.ball:SetAttribute("networkOwner", player.UserId)
+			args.ball:SetAttribute("network", 0)
+			args.ball.network.owner.Value = player
+
+			args.ball.CanCollide = false
+
+			local alignPosition = Instance.new("AlignPosition", args.ball)
+			alignPosition.Mode = Enum.PositionAlignmentMode.TwoAttachment
+			alignPosition.Attachment0 = centre
+			alignPosition.Attachment1 = player.Character.Ball.BallWeldRigAttachment
+			alignPosition.MaxForce = 1e5
+			alignPosition.Responsiveness = 30
+			alignPosition.Enabled = true
+
+			references.RemoteEvent:FireAllClients("ballModel", {
+				exclude = player,
+				ball = args.ball,
+				transparency = 1
+			})
+
+			if args.ball.design:FindFirstChildWhichIsA("BasePart") then
+				args.ball.design:FindFirstChildWhichIsA("BasePart").Transparency = 1
+			end
+			if player.Character.Ball.design:FindFirstChildWhichIsA("BasePart") then
+				player.Character.Ball.design:FindFirstChildWhichIsA("BasePart").Transparency = 0
+			end
+
+			glt:create(args.cframe)
+			args.ball:SetNetworkOwner(player)
+
+			return true
+		end
+	end,
+
+	["drop"] = function(player, args)
+		args.ball:SetAttribute("catch", nil)
+		args.ball.CanCollide = true
+
+		if _G._references.Main.config.Override:FindFirstChild("Goal") then
+			_G._references.Main.config.Override.Goal:Destroy()
+		end
+
+		if _G._references.Main.config.Delay:FindFirstChild("NoReact") then
+			_G._references.Main.config.Delay.NoReact:Destroy()
+		end
+
+		if args.resetVelocity then
+			args.ball.AssemblyLinearVelocity = Vector3.new()
+			args.ball.AssemblyAngularVelocity = Vector3.new()
+		end
+
+		if args.ball.design:FindFirstChildWhichIsA("BasePart") then
+			args.ball.design:FindFirstChildWhichIsA("BasePart").Transparency = 0
+		end
+		if player.Character.Ball.design:FindFirstChildWhichIsA("BasePart") then
+			player.Character.Ball.design:FindFirstChildWhichIsA("BasePart").Transparency = 1
+		end
+
+		gkSpaceMaid:DoCleaning()
+
+		references.RemoteEvent:FireAllClients("ballModel", {
+			exclude = player,
+			ball = args.ball,
+			transparency = 0
+		})
+
+		for _,v in next, args.ball:GetChildren() do
+			if v:IsA("AlignPosition") then
+				v:Destroy()
+			end
+		end
+
+		if args.callback then
+			return true
+		end
+	end,
+
+	["createServer"] = function(player, code)
+		if game.PlaceId == 15690159367 then
+			local reservedServerAccessCode = services.TeleportService:ReserveServer(16846901678)
+			local teleportData = {
+				code = code,
+				access = reservedServerAccessCode
+			}
+			local success, errorMessage = pcall(function()
+				return services.TeleportService:TeleportToPrivateServer(16846901678, reservedServerAccessCode, {player}, "", teleportData)
+			end)
+
+			if not success then
+				player:Kick("Teleport failed | Please rejoin and try again.")
+			end
+		else
+			local reservedServerAccessCode = services.TeleportService:ReserveServer(15758062201)
+			local teleportData = {
+				code = code,
+				access = reservedServerAccessCode
+			}
+			local success, errorMessage = pcall(function()
+				return services.TeleportService:TeleportToPrivateServer(15758062201, reservedServerAccessCode, {player}, "", teleportData)
+			end)
+
+			if not success then
+				player:Kick("Teleport failed | Please rejoin and try again.")
+			end
+		end
+	end,
+
+	["privateServer"] = function(player, accessCode)
+		if game.PlaceId == 15690159367 then
+			local success, errorMessage = pcall(function()
+				return services.TeleportService:TeleportToPrivateServer(16846901678, accessCode, {player})
+			end)
+
+			if not success then
+				player:Kick("Teleport failed | Please rejoin and try again.")
+			end
+		else
+			local success, errorMessage = pcall(function()
+				return services.TeleportService:TeleportToPrivateServer(15758062201, accessCode, {player})
+			end)
+
+			if not success then
+				player:Kick("Teleport failed | Please rejoin and try again.")
+			end
+		end
+	end,
+
+	["lastTouch"] = function(player, ball, position, speed)
+		ball:SetAttribute("lastTouchUser", player.Name)
+		ball:SetAttribute("lastTouchPosition", position)
+		ball:SetAttribute("ballTopSpeed", speed)
+	end,
+
+	["celebrate"] = function(player, value)
+		if references.Main.config.Celebrate.Value and not references.Main.config.CelebrationInProgress.Value then
+			if player.Team and player.Team.Name and string.find(player.Team.Name, "Home") then
+				celebration:init({
+					_subject = player,
+					_side = "away",
+					_celebration = value
+				})
+			elseif player.Team and player.Team.Name and string.find(player.Team.Name, "Away") then
+				celebration:init({
+					_subject = player,
+					_side = "home",
+					_celebration = value
+				})
+			end
+		end
+	end,
+
+	["filterString"] = function(player, text)
+		local filterSuccess, textObject = pcall(function()
+			return services.TextService:FilterStringAsync(text, player.UserId)
+		end)
+
+		if filterSuccess then
+			local broadcastSuccess, filteredString = pcall(function()
+				return textObject:GetNonChatStringForBroadcastAsync()
+			end)
+
+			if broadcastSuccess then
+				return filteredString
+			else
+				warn(string.format("An unexpected error occured while broadcasting string (%s)", textObject))
+			end
+		else
+			warn(string.format("An unexpected error occured while filtering string (%s)", textObject))
+		end
+
+		return "filter error"
+	end,
+
+	["characterBall"] = function(player, transparency)
+		if player.Character.Ball.design:FindFirstChildWhichIsA("BasePart") then
+			player.Character.Ball.design:FindFirstChildWhichIsA("BasePart").Transparency = transparency
+		end
+	end,
+
+	["ballModel"] = function(player, ball, transparency)
+		references.RemoteEvent:FireAllClients("ballModel", {
+			exclude = player,
+			ball = ball,
+			transparency = transparency
+		})
+	end,
+
+	["ballAttribute"] = function(player, ball, attribute, value)
+		if player and ball and attribute then
+			ball:SetAttribute(attribute, value)
+		end
+	end,
+
+	["stats"] = function(player, reference)
+		local profile = references.Profiles:WaitForChild(tostring(player.UserId), 100)
+
+		if string.find(player.Team.Name, "Home") then
+			references.Main.config.Stats.Home[reference].Value += 1
+		else
+			references.Main.config.Stats.Away[reference].Value += 1
+		end
+
+		if game.PrivateServerOwnerId == 0 and (reference == "Shots" or reference == "Passes") and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+			profile.stats[reference].Value += 1
+		end
+	end,
+
+	["captain"] = function(player)
+		local side = "home"
+
+		if string.find(player.Team.Name, "Away") then
+			side = "away"
+		end
+
+		local value = Instance.new("StringValue")
+		value.Name = side
+		value.Value = player.Name
+		value.Parent = references.Main.captains
+	end,
+
+	["offsideCheck"] = function(player, ball)
+		local attacking = "home"
+		local defending = "away"
+
+		if string.find(player.Team.Name, "Away") then
+			attacking = "away"
+			defending = "home"
+		end
+
+		task.spawn(function()
+			offside:check(player, ball.Position, {
+				_attacking = attacking,
+				_defending = defending
+			})
+		end)
+	end,
+
+	["offsideConfirm"] = function(player)
+		if string.find(player.Team.Name, "Home") then
+			task.spawn(function()
+				offside:run("home", player)
+			end)
+		else
+			task.spawn(function()
+				offside:run("away", player)
+			end)
+		end
+	end,
+
+	["partTeleport"] = function(player, part, offset)
+		if player and player.Character and player.Character.PrimaryPart and part then
+			local teleport = Instance.new("BoolValue", player)
+			teleport.Name = "Teleport"
+			teleport.Value = true
+
+			services.Debris:AddItem(teleport, 3)
+
+			if offset then
+				player.Character:SetPrimaryPartCFrame(part.CFrame * offset)
+			else
+				player.Character:SetPrimaryPartCFrame(part.CFrame)
+			end
+		end
+	end,
+
+	["pitchTeleporter"] = function(player)
+		if player and player.Character and player.Character.PrimaryPart then
+			if (cooldowns[player.Name] and tick() - cooldowns[player.Name] >= 120) or not cooldowns[player.Name] then
+				cooldowns[player.Name] = tick()
+				local teleport = Instance.new("BoolValue", player)
+				teleport.Name = "Teleport"
+				teleport.Value = true
+
+				services.Debris:AddItem(teleport, 3)
+
+				if string.find(player.Team.Name, "Home") and string.find(player.Team.Name, "GK") then
+					player.Character:SetPrimaryPartCFrame(workspace.game.positions.homeGK.CFrame)
+				elseif string.find(player.Team.Name, "Home") and not string.find(player.Team.Name, "GK") then
+					player.Character:SetPrimaryPartCFrame(workspace.game.positions.home.CFrame)
+				elseif string.find(player.Team.Name, "Away") and string.find(player.Team.Name, "GK") then
+					player.Character:SetPrimaryPartCFrame(workspace.game.positions.awayGK.CFrame)
+				elseif string.find(player.Team.Name, "Away") and not string.find(player.Team.Name, "GK") then
+					player.Character:SetPrimaryPartCFrame(workspace.game.positions.away.CFrame)
+				end
+			end
+		end
+	end,
+
+	["replay"] = function(player)
+		local objectValue = Instance.new("ObjectValue", _G._references.Main.replay)
+		objectValue.Name = tostring(player.UserId)
+		objectValue.Value = player
+	end,
+
+	["voteKick"] = function(player, user, option)
+		if option == "yes" and references.Main["vote kick"]:FindFirstChild(user) then
+			local value = Instance.new("BoolValue")
+			value.Name = player.Name
+			value.Value = true
+			value.Parent = references.Main["vote kick"][user]
+		end
+	end,
+
+	["voteFix"] = function(player, option)
+		if option == "yes" and references.Main["vote fix"]:FindFirstChild("vote fix") then
+			local value = Instance.new("BoolValue")
+			value.Name = player.Name
+			value.Value = true
+			value.Parent = references.Main["vote fix"]["vote fix"]
+		end
+	end,
+
+	["ankle"] = function(player, args)
+		while not args.ball:FindFirstChild("properties") do
+			task.wait()
+		end
+
+		if (timers[player.Name] and tick() - timers[player.Name] >= 2) or not timers[player.Name] then
+			timers[player.Name] = tick()
+
+			local ankle = Instance.new("BoolValue", args.ball.properties)
+			ankle.Name = "ankle"
+			ankle.Value = true
+
+			services.Debris:AddItem(ankle, ankleCooldown)
+		end
+	end,
+
+	["marker"] = function(player, mouseHitPosition)
+		references.RemoteEvent:FireAllClients("marker", player, mouseHitPosition)
+	end,
+
+	["physics"] = function(player, instance, property, value)
+		if instance.Parent.Name == "RF" then
+			instance[property] = value
+		end
+	end,
+
+	["itemCheck"] = function(player, category, item)
+		local profile = references.Network.Profiles[tostring(player.UserId)]
+
+		if profile then
+			if profile.inventory:FindFirstChild(category) and profile.inventory[category]:FindFirstChild(item) then
+				return true
+			end
+		end
+
+		return false
+	end,
+
+	["purchase"] = function(player, item, category)
+		local profile = references.Network.Profiles[tostring(player.UserId)]
+		local price = 999999999
+
+		if item:FindFirstChild("Price") then
+			price = item.Price.Value
+		end
+
+		if category == "Ball" then
+			category = "Ball Holds"
+		end
+
+		if profile.stats.Cash.Value - price < 0 then
+			return "error", "Insufficient funds!"
+		elseif profile.inventory[category]:FindFirstChild(item.Name) then
+			return "error", "Duplicate item detected!"
+		else
+			profile.stats.Cash.Value -= price
+
+			local boolValue = Instance.new("BoolValue")
+			boolValue.Name = item.Name
+			boolValue.Value = true
+			boolValue:SetAttribute("key", references.Main.config.Key:GetAttribute("realKey"))
+			boolValue.Parent = profile.inventory[category]
+
+			return "success", "Purchase successful!"
+		end
+	end,
+
+	["redeem"] = function(player, code)
+		local profile = references.Network.Profiles[tostring(player.UserId)]
+
+		if profile.codes:FindFirstChild(code) then
+			return "error", "Code has already been redeemed!"
+		elseif not services.ServerStorage.codes:FindFirstChild(code) then
+			return "error", "Code is invalid or expired!"
+		elseif services.ServerStorage.codes:FindFirstChild(code) and not profile.codes:FindFirstChild(code) then
+			local reference = services.ServerStorage.codes[code]
+
+			if string.find(reference.Value, "Cash") then
+				local cash = reference.Value:split("Cash")
+
+				if cash and cash[1] then
+					cash = cash[1]:gsub(" ", "")
+					profile.stats.Cash.Value += tonumber(cash)
+				end
+
+				local codeValue = Instance.new("BoolValue")
+				codeValue.Name = code
+				codeValue.Value = true
+				codeValue.Parent = profile.codes
+
+				return "success", string.format("Successfully redeemed %s RF points!", formatNumber.FormatLong(tonumber(cash)))
+			end
+
+			local item = references.Main:FindFirstChild(string.lower(reference.category.Value)) and references.Main:FindFirstChild(string.lower(reference.category.Value))[reference.Value] or references.Main.animations:FindFirstChild(reference.category.Value) and references.Main.animations:FindFirstChild(reference.category.Value)[reference.Value]
+			local category = reference.category.Value
+
+			local codeValue = Instance.new("BoolValue")
+			codeValue.Name = code
+			codeValue.Value = true
+			codeValue.Parent = profile.codes
+
+			if category == "Ball" then
+				category = "Ball Holds"
+			end
+
+			if profile.inventory[category]:FindFirstChild(reference.Value) and item:FindFirstChild("Price") then
+				profile.stats.Cash.Value += item.Price.Value
+				return "success", string.format("Duplicate item detected, %s RF points rewarded instead.", formatNumber.FormatLong(item.Price.Value))
+			elseif profile.inventory[category]:FindFirstChild(reference.Value) and not item:FindFirstChild("Price") then
+				return "error", "Code has already been redeemed!"
+			else
+				local boolValue = Instance.new("BoolValue")
+				boolValue.Name = item.Name
+				boolValue.Value = true
+				boolValue:SetAttribute("key", references.Main.config.Key:GetAttribute("realKey"))
+				boolValue.Parent = profile.inventory[category]
+
+				return "success", string.format("Successfully redeemed %s!", reference.Value)
+			end
+		end
+	end,
+
+	["switch"] = function(player)
+		local spawns = {}
+
+		for _, part in next, workspace.spawns.spawn:GetChildren() do
+			if part and part.Name == "spawn" then
+				table.insert(spawns, part)
+			end
+		end
+
+		player.TeamColor = BrickColor.new("Medium stone grey")
+		player:LoadCharacter()
+
+		while not player.Character.PrimaryPart do
+			task.wait()
+		end
+
+		local teleport = Instance.new("BoolValue", player)
+		teleport.Name = "Teleport"
+		teleport.Value = true
+		services.Debris:AddItem(teleport, 3)
+
+		player.Character:SetPrimaryPartCFrame(spawns[math.random(1, #spawns)].CFrame * CFrame.new(0, 5, 0))
+	end,
+
+	["team"] = function(player, team)
+		if string.find(team.Name, "GK") then
+			local spawns = {}
+
+			for _, plr in next, services.Players:GetPlayers() do
+				if plr and plr.Team and plr.Team == team then
+					return "full"
+				end
+			end
+
+			for _, part in next, workspace.spawns.spawn:GetChildren() do
+				if part and part.Name == "studio" then
+					table.insert(spawns, part)
+				end
+			end
+
+			player.Team = team
+			player:LoadCharacter()
+
+			while not player.Character.PrimaryPart do
+				task.wait()
+			end
+
+			local teleport = Instance.new("BoolValue", player)
+			teleport.Name = "Teleport"
+			teleport.Value = true
+			services.Debris:AddItem(teleport, 3)
+
+			player.Character:SetPrimaryPartCFrame(spawns[math.random(1, #spawns)].CFrame * CFrame.new(0, 5, 0))
+
+			return "success"
+		else
+			local count1, count2 = 0, 0
+			local team1, team2
+
+			if team.Name == "Home" then
+				team1, team2 = team, services.Teams.Away
+			elseif team.Name == "Away" then
+				team1, team2 = team, services.Teams.Home
+			end
+
+			for _, plr in next, services.Players:GetPlayers() do
+				if plr and plr.Team and (plr.Team == team1 or plr.Team.Name == team1.Name .. " GK") then
+					count1 += 1
+				elseif plr and plr.Team and (plr.Team == team2 or plr.Team.Name == team2.Name .. " GK") then
+					count2 += 1
+				end
+			end
+
+			if count1 > count2 then
+				return "full"
+			else
+				local spawns = {}
+
+				for _, part in next, workspace.spawns.spawn:GetChildren() do
+					if part and part.Name == "studio" then
+						table.insert(spawns, part)
+					end
+				end
+
+				player.Team = team
+				player:LoadCharacter()
+
+				while not player.Character.PrimaryPart do
+					task.wait()
+				end
+
+				local teleport = Instance.new("BoolValue", player)
+				teleport.Name = "Teleport"
+				teleport.Value = true
+				services.Debris:AddItem(teleport, 3)
+
+				player.Character:SetPrimaryPartCFrame(spawns[math.random(1, #spawns)].CFrame * CFrame.new(0, 5, 0))
+				return "success"
+			end
+		end
+	end,
+
+	["grassStain"] = function(player, limbs)
+		local chance = math.random(1, 2)
+
+		limbs = limbs or {"RightUpperArm", "RightLowerArm", "LeftUpperArm", "LeftLowerArm", "UpperTorso", "RightUpperLeg", "RightLowerLeg", "LeftUpperLeg", "LeftLowerLeg"}
+
+		if chance == 1 then
+			local stains = references.Main.stains:GetChildren()
+			local randomStain = math.random(1, #stains)
+			local stain = stains[randomStain] 
+
+			local randomLimb = math.random(1, #limbs)
+			local limb = limbs[randomLimb]
+
+			if player.Character[limb]:FindFirstChild("Stain") then
+				local oldStain = player.Character[limb]:FindFirstChild("Stain")
+
+				if oldStain.Face == "Right" or oldStain.Face == "Left" then
+					local decal = stain:Clone()
+					decal.Parent = player.Character[limb]
+					decal.Face = "Front"
+
+				elseif oldStain.Face == "Front" then
+					local decal = stain:Clone()
+					decal.Parent = player.Character[limb]
+					decal.Face = "Back"
+				end
+			else
+				if string.find(limb, "Right") then
+					local decal = stain:Clone()
+					decal.Parent = player.Character[limb]
+					decal.Face = "Right"
+				elseif string.find(limb, "Left") then
+					local decal = stain:Clone()
+					decal.Parent = player.Character[limb]
+					decal.Face = "Left"
+				end
+			end
+		end
+	end,
+
+	["startPitchWear"] = function(player, limbs)
+		references.RemoteEvent:FireAllClients("startPitchWear", player, limbs)
+	end,
+
+	["endPitchWear"] = function(player)
+		references.RemoteEvent:FireAllClients("endPitchWear", player)
+	end,
+
+	["devConsole"] = function(player)
+		return table.find(whitelist, player.UserId)
+	end,
+
+	["teleport"] = function(player, placeId, jobId)
+		teleporter:start(player, placeId, jobId)
+	end,
+
+	["kick"] = function(player, reason, ignoreBan)
+		local profile = references.Profiles:WaitForChild(tostring(player.UserId), 100)
+
+		--[[if profile and not ignoreBan then
+			profile.stats.Reason.Value = reason
+		end]]
+
+		local config: BanConfigType = {
+			UserIds = {player.UserId},
+			Duration = -1,
+			DisplayReason = reason,
+			PrivateReason = reason,
+			ExcludeAltAccounts = false,
+			ApplyToUniverse = true
+		}
+
+		local success, errorMessage = pcall(function()
+			return _G._services.Players:BanAsync(config)
+		end)
+
+		print(success, errorMessage)
+		--teleporter:start(player, 14480394650)
+	end,
+
+	["sound"] = function(player, args)
+		local array = {}
+
+		for key, value in next, args do
+			if key ~= "replicate" then
+				array[key] = value
+			end
+		end
+
+		array.exclude = player
+		references.RemoteEvent:FireAllClients("sound", array)
+	end,
+
+	["trip"] = function(player, target, ballFirst)
+		if target:FindFirstChild("Humanoid") and not _G._services.Players:GetPlayerFromCharacter(target) then
+			task.spawn(function()
+				local soundList = references.Main.sounds.CammySounds.Atmosphere.Player["Player Grunts"]:GetChildren()
+				local sound = soundList[math.random(1, #soundList)]
+
+				sounds:load({
+					directory = target.HumanoidRootPart,
+					soundId = sound.SoundId,
+					rollOffMaxDistance = 200,
+					rollOffMinDistance = 30,
+					volume = 0.2,
+					play = true
+				})
+			end)
+
+			ragdoll._npc:toggle(false, target)
+			task.wait(math.random(1.5, 3))
+			ragdoll._npc:toggle(true, target)
+		end
+
+		if not isTeammate(player, target) and _G._references.Main.config.Timer.Enabled.Value and isOnPitch(player.Character.HumanoidRootPart) and isOnPitch(target.HumanoidRootPart) and (target.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude <= 50 and services.Players:GetPlayerFromCharacter(target) then
+			if _G._references.Main.config.Override:FindFirstChild("Foul") or _G._references.Main.config.Override:FindFirstChild("Goal") or _G._references.Main.config.Override:FindFirstChild("DisableFouls") or (player.TeamColor == BrickColor.new("Institutional white") and _G._references.Main.config.AutoSystem.Value) then
+				return
+			end
+
+			local playerFromCharacter = services.Players:GetPlayerFromCharacter(target)
+
+			if string.find(playerFromCharacter.Team.Name, "GK") then
+				return
+			end
+
+			task.spawn(function()
+				local soundList = references.Main.sounds.CammySounds.Atmosphere.Player["Player Grunts"]:GetChildren()
+				local sound = soundList[math.random(1, #soundList)]
+
+				sounds:load({
+					directory = target.HumanoidRootPart,
+					soundId = sound.SoundId,
+					rollOffMaxDistance = 200,
+					rollOffMinDistance = 30,
+					volume = 0.2,
+					play = true
+				})
+			end)
+
+			references.RemoteEvent:FireClient(services.Players:GetPlayerFromCharacter(target), "trip")
+			if _G._references.Main.config.AutoSystem.Value and not ballFirst then
+				local tacklePosition = Vector3.new(target.HumanoidRootPart.Position.X, _G._references.Main["set pieces"]["Free Kick"].Primary.Position.Y, target.HumanoidRootPart.Position.Z)
+				task.spawn(function()
+					foul:onFoul(player, playerFromCharacter, tacklePosition)
+				end)
+			end
+		end
+	end,
+
+	["loaded"] = function(player)
+		if not player:GetAttribute("loaded") then
+			player:SetAttribute("loaded", true)
+		end
+	end,
+
+	["pull"] = function(player, target)
+		if not isTeammate(player, target) and (target.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude <= 50 and services.Players:GetPlayerFromCharacter(target) then
+			references.RemoteEvent:FireClient(services.Players:GetPlayerFromCharacter(target), "pull")
+		end
+	end,
+
+	["editMatchSettings"] = function(player, session, instance, value)
+		if sessions:isSession({constructor = "editMatchSettings", session = session}) and references.Main.config:FindFirstChild(instance) then
+			references.Main.config[instance].Value = value
+		end
+	end,
+
+	["ballSelection"] = function(player, session, ball)
+		if sessions:isSession({constructor = "ballSpawner", session = session}) then
+			references.Main.config.Ball.Value = ball
+		end
+	end,
+
+	["teamSelection"] = function(player, side, team)
+		references.Main.config.Stats[side].Team.Value = team
+	end,
+
+	["kitTypeSelection"] = function(player, side, kitType)
+		references.Main.config.Stats[side]["Kit Type"].Value = kitType
+	end,
+
+	["stadiumSelection"] = function(player, session, stadium)
+		if sessions:isSession({constructor = "stadiumSelector", session = session}) then
+			references.Main.config.Stadium.Value = stadium
+			references.Main.config.LeagueStadium.Value = ""
+		end
+	end,
+
+	["getStadiums"] = function(player)
+		local stadiums = {}
+
+		for _,v in next, services.ServerStorage.stadiums:GetChildren() do
+			if v then
+				local clone = v:Clone()
+
+				if clone:FindFirstChild("Fans") then
+					clone.Fans:Destroy()
+				end
+
+				if clone:FindFirstChild("Lights") then
+					clone.Lights:Destroy()
+				end
+
+				local grass = workspace.pitch.main.Grass:Clone()
+				local lines = workspace.pitch.main.Lines:Clone()
+				local outer = workspace.pitch.outer:Clone()
+
+				grass.Parent = clone
+				lines.Parent = clone
+				outer.Parent = clone
+
+				clone.Parent = references.Main.storage
+				clone:SetAttribute("request", player.Name)
+				table.insert(stadiums, clone)
+			end
+		end
+
+		return stadiums
+	end,
+
+	["clearStadiums"] = function(player)
+		for _,v in next, references.Main.storage:GetChildren() do
+			if v and v:GetAttribute("request") and v:GetAttribute("request") == player.Name then
+				v:Destroy()
+			end
+		end
+	end,
+
+	["conditions"] = function(player)
+		return references.Main.config.Time.Value, references.Main.config.Weather.Value
+	end,
+
+	["replicateValue"] = function(player, object, value)
+		if (object.Name == "Number" and value >= 100) or object:FindFirstAncestor("level") or (object:FindFirstAncestor("stats") and object.Name ~= "Number") then
+			return
+		end
+
+		if object:FindFirstAncestor(tostring(player.UserId)) then
+			if string.find(object.Name, "Accessory") and not object.Parent.Parent.Accessories:FindFirstChild(value) and value ~= "None" and value ~= "RF Premium" then
+				return
+			elseif string.find(object.Name, "Ball Hold") and not object.Parent.Parent["Ball Holds"]:FindFirstChild(value) and value ~= "None" and value ~= "RF Premium" then
+				return
+			elseif object.Parent.Parent:FindFirstChild(object.Name) and not object.Parent.Parent[object.Name]:FindFirstChild(value) and value ~= "None" and value ~= "RF Premium" then
+				return
+			end
+
+			object.Value = value
+		end
+	end,
+
+	["promptSubscriptionPurchase"] = function(player)
+		_G._services.MarketplaceService:PromptSubscriptionPurchase(player, _G._subscriptionId)
+		return
+	end,
+
+	["gloves"] = function(player, transparency)
+		local profile = references.Network.Profiles:WaitForChild(tostring(player.UserId), 100)
+
+		if references.Main.gloves:FindFirstChild(profile.inventory.Current.Gloves.Value) and player.Character:FindFirstChild("Gloves") then
+			local gloves = references.Main.gloves:WaitForChild(profile.inventory.Current.Gloves.Value, 100)
+
+			if tonumber(gloves.GloveType.Value) == 1 then
+				player.Character.Gloves["2"].RightGlove.Transparency = 1
+				player.Character.Gloves["2"].LeftGlove.Transparency = 1
+
+				if transparency == 0 then
+					player.Character.Gloves["1"].RightGlove.Transparency = 0
+					player.Character.Gloves["1"].LeftGlove.Transparency = 0
+
+					if player.Character.Accessories:FindFirstChild("RightGlove") then
+						player.Character.Accessories.RightGlove.Transparency = 1
+						player.Character.Accessories.LeftGlove.Transparency = 1
+					end
+
+					player.Character.RightHand.Transparency = 1
+					player.Character.LeftHand.Transparency = 1
+				else
+					player.Character.Gloves["1"].RightGlove.Transparency = 1
+					player.Character.Gloves["1"].LeftGlove.Transparency = 1
+
+					if player.Character.Accessories:FindFirstChild("RightGlove") then
+						player.Character.Accessories.RightGlove.Transparency = 0
+						player.Character.Accessories.LeftGlove.Transparency = 0
+
+						player.Character.RightHand.Transparency = 1
+						player.Character.LeftHand.Transparency = 1
+					else
+						player.Character.RightHand.Transparency = 0
+						player.Character.LeftHand.Transparency = 0
+					end
+				end
+
+			elseif tonumber(gloves.GloveType.Value) == 2 then
+				player.Character.Gloves["1"].RightGlove.Transparency = 1
+				player.Character.Gloves["1"].LeftGlove.Transparency = 1
+
+				if transparency == 0 then
+					player.Character.Gloves["2"].RightGlove.Transparency = 0
+					player.Character.Gloves["2"].LeftGlove.Transparency = 0
+
+					if player.Character.Accessories:FindFirstChild("RightGlove") then
+						player.Character.Accessories.RightGlove.Transparency = 1
+						player.Character.Accessories.LeftGlove.Transparency = 1
+					end
+
+					player.Character.RightHand.Transparency = 1
+					player.Character.LeftHand.Transparency = 1
+				else
+					player.Character.Gloves["2"].RightGlove.Transparency = 1
+					player.Character.Gloves["2"].LeftGlove.Transparency = 1
+
+					if player.Character.Accessories:FindFirstChild("RightGlove") then
+						player.Character.Accessories.RightGlove.Transparency = 0
+						player.Character.Accessories.LeftGlove.Transparency = 0
+
+						player.Character.RightHand.Transparency = 1
+						player.Character.LeftHand.Transparency = 1
+					else
+						player.Character.RightHand.Transparency = 0
+						player.Character.LeftHand.Transparency = 0
+					end
+				end
+			end
+		end
+	end,
+
+	["ragdoll"] = function(player, forceToggle, isHolding)
+		if forceToggle then
+			if forceToggle == "bind" then
+				player.Character:SetAttribute("isHolding", isHolding)
+				player.Character:SetAttribute("serverRagdollBinder", true)
+			else
+				player.Character:SetAttribute("isHolding", nil)
+				player.Character:SetAttribute("serverRagdollBinder", false)
+				return true
+			end
+		else
+			local ragdoll = player.Character:GetAttribute("serverRagdollBinder")
+
+			if ragdoll then
+				player.Character:SetAttribute("isHolding", nil)
+				player.Character:SetAttribute("serverRagdollBinder", false)
+				return true
+			else
+				player.Character:SetAttribute("isHolding", isHolding)
+				player.Character:SetAttribute("serverRagdollBinder", true)
+			end
+		end
+	end,
+
+	["getUpBinder"] = function(player, toggle)
+		player.Character:SetAttribute("getUpBinder", toggle)
+	end,
+}
+
+for index, value in next, tasks do
+	network:add(index, value)
+end
+
+while true do
+	if references.Main.config.Intensity.Value == "Moderate" then
+		task.wait(math.random(3, 15))
+	elseif references.Main.config.Intensity.Value == "Heavy" then
+		task.wait(math.random(3, 10))
+	elseif references.Main.config.Intensity.Value == "Violent" then
+		task.wait(math.random(1, 7))
+	else
+		task.wait(1)
+	end
+
+	if references.Main.config.Weather.Value == "Rain" and references.Main.config.Intensity.Value ~= "Light" and references.Main.config.Thunder.Value then
+		local position = Vector3.new(math.random(workspace.pitch.bounds.x.min.Position.X, workspace.pitch.bounds.x.max.Position.X), 0.42, math.random(workspace.pitch.bounds.z.min.Position.Z, workspace.pitch.bounds.z.max.Position.Z))
+
+		for _,v in next, services.Players:GetPlayers() do
+			if v and v.Character and math.random(1, 12000) == 1 then
+				position = Vector3.new(v.Character.PrimaryPart.Position.X, 0.42, v.Character.PrimaryPart.Position.Z)
+
+				references.RemoteEvent:FireClient(v, "ragdoll")
+				task.delay(math.random(5, 20), function()
+					references.RemoteEvent:FireClient(v, "unragdoll")
+				end)
+			end
+		end
+
+		references.RemoteEvent:FireAllClients("lightning", position)
+	end
+end
