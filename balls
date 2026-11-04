@@ -1,0 +1,303 @@
+return {
+	_init = function()
+		local balls = workspace.game.balls
+		local ballService = _G._engine:load("Balls")
+		local maidClass = _G._engine:load("Maid")
+		local designs = _G._references.Main.balls
+		local config = _G._references.Main.config
+		local ballsNetworking = {}
+		local spawned = {}
+
+		local function spawnBall(value)
+			local maid = maidClass.new()
+			local debounce = false
+
+			local ball = _G._references.Main.RF:Clone()
+			ball.Parent = balls.server
+			ball.CFrame = value.Value
+
+			local spawner = Instance.new("ObjectValue", ball.properties)
+			spawner.Name = "spawner"
+			spawner.Value = value
+			
+			if _G._useReplicators then
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player then
+						task.spawn(function()
+							local replicator = _G._references.Main.storage.replicator:Clone()
+							replicator.Name = tostring(player.UserId)
+							replicator.Parent = workspace.game.replication
+
+							while not replicator:CanSetNetworkOwnership() do
+								task.wait()
+							end
+
+							replicator:SetNetworkOwner(player)
+							maid:GiveTask(replicator)
+
+							local reference = replicator:WaitForChild("reference", 100)
+							if reference then
+								reference.Value = ball
+							end
+						end)
+					end
+				end
+			end
+			
+			local function onTouched(hit)
+				if hit and hit.Parent and hit.Parent:FindFirstChild("Humanoid") and _G._services.Players:GetPlayerFromCharacter(hit.Parent) and not debounce then
+					local player = _G._services.Players:GetPlayerFromCharacter(hit.Parent)
+					local lastTouch = hit:GetAttribute("lastTouch")
+					
+					debounce = true
+					hit:SetAttribute("lastTouch", player.UserId)
+					
+					task.delay(0.15, function()
+						debounce = false
+					end)
+				end
+			end
+			
+			maid["onTouched"] = ball.Touched:Connect(onTouched)
+			maid["onTouchEnded"] = ball.TouchEnded:Connect(onTouched)
+
+			maid["childAdded"] = value.ChildAdded:Connect(function(v)
+				if v.Name == "possessor" then
+					ball:SetAttribute("lastTouch", v.Value)
+					ball:SetAttribute("possessor", v.Value)
+					ball:SetAttribute("network", v.Value)
+					ball:SetAttribute("networkOwner", v.Value)
+
+					if _G._services.Players:GetNameFromUserIdAsync(v.Value) then
+						if _G._services.Players:FindFirstChild(_G._services.Players:GetNameFromUserIdAsync(v.Value)) then
+							ball:SetNetworkOwner(_G._services.Players[_G._services.Players:GetNameFromUserIdAsync(v.Value)])
+						end
+					end
+				end
+			end)
+
+			maid["ballDesign"] = config.Ball.Changed:Connect(function()
+				if designs[config.Ball.Value] then
+					local hideMesh = false
+
+					for _,v in next, ball.design:GetChildren() do
+						if v and v.Transparency == 1 then
+							hideMesh = true
+							v:Destroy()
+						elseif v and v.Transparency == 0 then
+							v:Destroy()
+						end
+					end
+
+					local mesh = designs[config.Ball.Value]:Clone()
+					mesh.Parent = ball.design
+					mesh.Size = ball.Size
+					mesh.CFrame = ball.CFrame
+					mesh.Transparency = hideMesh and 1 or 0
+					ball.Transparency = 1
+
+					local weld = Instance.new("WeldConstraint", mesh)
+					weld.Part0 = mesh
+					weld.Part1 = ball
+				end
+			end)
+
+			spawned[value] = maid
+
+			task.spawn(function()
+				while true do
+					task.wait(0.15)
+
+					if maid and maid["childAdded"] then
+						if ball:FindFirstChild("replication") and ball.replication:FindFirstChild("AssemblyLinearVelocity") and ball.replication:FindFirstChild("AssemblyAngularVelocity") then
+							local replication = ball:WaitForChild("replication", 100)
+							local assemblyLinearVelocity = replication:WaitForChild("AssemblyLinearVelocity", 100)
+							local assemblyAngularVelocity = replication:WaitForChild("AssemblyAngularVelocity", 100)
+
+							if (assemblyLinearVelocity.Value * Vector3.new(1, 0, 1)).Magnitude >= (ball.AssemblyLinearVelocity * Vector3.new(1, 0, 1)).Magnitude and ((assemblyLinearVelocity.Value * Vector3.new(1, 0, 1)) - (ball.AssemblyLinearVelocity * Vector3.new(1, 0, 1))).Magnitude >= 35 then
+								task.wait(1)
+
+								assemblyLinearVelocity.Value = ball.AssemblyLinearVelocity
+								assemblyAngularVelocity.Value = ball.AssemblyAngularVelocity
+							else
+								assemblyLinearVelocity.Value = ball.AssemblyLinearVelocity
+								assemblyAngularVelocity.Value = ball.AssemblyAngularVelocity
+							end
+						end
+					else
+						break
+					end
+				end
+			end)
+		end
+
+		local function clearBall(value)
+			for _, ball in next, balls.server:GetChildren() do
+				if ball and ball:FindFirstChild("properties") and ball.properties:FindFirstChild("spawner") and ball.properties.spawner.Value == value then
+					ball:Destroy()
+				end
+			end
+
+			_G._references.BindableEvent:Fire("clearSpace")
+
+			if spawned[value] then
+				spawned[value]:DoCleaning()
+				spawned[value] = nil
+			end
+		end
+
+		local function spawnPhysicalBall(ball)
+			_G._services.CollectionService:AddTag(ball, ballService.Tag)
+
+			if designs[config.Ball.Value] then
+				local hideMesh = false
+
+				for _,v in next, ball.design:GetChildren() do
+					if v and v.Transparency == 1 then
+						hideMesh = true
+						v:Destroy()
+					elseif v and v.Transparency == 0 then
+						v:Destroy()
+					end
+				end
+
+				local mesh = designs[config.Ball.Value]:Clone()
+				mesh.Parent = ball.design
+				mesh.Size = ball.Size
+				mesh.CFrame = ball.CFrame
+				mesh.Transparency = hideMesh and 1 or 0
+				ball.Transparency = 1
+
+				local weld = Instance.new("WeldConstraint", mesh)
+				weld.Part0 = mesh
+				weld.Part1 = ball
+			end
+		end
+
+		local function clearPhysicalBall(ball)
+			_G._services.CollectionService:RemoveTag(ball, ballService.Tag)
+		end
+
+		balls.server.ChildAdded:Connect(function(v)
+			spawnPhysicalBall(v)
+			table.insert(ballsNetworking, v)
+		end)
+
+		balls.server.ChildRemoved:Connect(function(v)
+			clearPhysicalBall(v)
+			if table.find(ballsNetworking, v) then
+				table.remove(ballsNetworking, table.find(ballsNetworking, v))
+			end
+		end)
+
+		for _,v in next, balls.spawns:GetChildren() do
+			if v:IsA("CFrameValue") then
+				spawnBall(v)
+			end
+		end
+
+		balls.spawns.ChildAdded:Connect(function(v)
+			if v:IsA("CFrameValue") then
+				spawnBall(v)
+			end
+		end)
+
+		balls.spawns.ChildRemoved:Connect(function(v)
+			if v:IsA("CFrameValue") then
+				clearBall(v)
+			end
+		end)
+		
+		--[[  Anti Ball Glitch  ]]-------------------------------------------------------------------------------------------------------
+		
+		local function onTouch(hit)
+			if hit and hit.Parent and hit.Name == "RF" then
+				hit.CFrame = CFrame.new(_G._references.Main.admin.positions.LBALL.Position)
+				hit.AssemblyLinearVelocity = Vector3.new()
+				hit.AssemblyAngularVelocity = Vector3.new()
+			end
+		end
+		
+		for _, part in next, workspace.game.regions:GetChildren() do
+			if part and part.Name == "teleport" then
+				part.Touched:Connect(onTouch)
+				part.TouchEnded:Connect(onTouch)
+			end
+		end
+
+		--[[  Auto Network Ownership  ]]-------------------------------------------------------------------------------------------------------
+		
+		local function getPartsInRegion(range, ball)
+			local closePlayers = {}
+
+			for _,v in pairs(_G._services.Players:GetChildren()) do
+				if v and v.Character then
+					local rootPart = v.Character:FindFirstChild("HumanoidRootPart")
+					
+					if rootPart then
+						if (ball.Position - rootPart.Position).Magnitude < range then
+							table.insert(closePlayers, v)
+						end
+					else
+						warn("Root part not found!")
+					end
+				end
+			end
+			
+			return closePlayers
+		end
+		
+		if _G._autoOwnership then
+			spawn(function()
+				_G._services.RunService.Heartbeat:Connect(function(delta)
+					for _, ball in next, ballsNetworking do
+						if ball and ball.Parent and ball:CanSetNetworkOwnership() then
+							local localMaid = maidClass.new()
+							local playersNearBall = getPartsInRegion(25, ball)
+							local network = ball:WaitForChild("network", 100)
+							local owner = network:WaitForChild("owner", 100)
+							local networkOwner = network:WaitForChild("networkOwner", 100)
+							local autoOwnershipEnabled = false
+
+							if #playersNearBall > 1 and ball:GetNetworkOwner() ~= owner.Value and owner.Value ~= nil then
+								task.delay(0.5, function()
+									if ball and ball.Parent and ball:CanSetNetworkOwnership() then
+										if _G._services.RunService:IsStudio() then
+											warn("AutoOwnership | Set NetworkOwner to user " .. owner.Value.Name)
+										end
+
+										ball:SetNetworkOwner(owner.Value)
+									end
+								end)
+
+							elseif #playersNearBall == 1 and ball:GetNetworkOwner() ~= playersNearBall[1] and ball and ball.Parent and ball:CanSetNetworkOwnership() then
+								ball:SetNetworkOwnershipAuto()
+								autoOwnershipEnabled = true
+
+								localMaid["checkNetworkOwner"] = _G._services.RunService.Heartbeat:Connect(function()
+									if ball and ball.Parent then
+										networkOwner.Value = ball:GetNetworkOwner()
+
+										if _G._services.RunService:IsStudio() and networkOwner.Value ~= nil then
+											warn("AutoOwnership | Set NetworkOwner to user " .. networkOwner.Value.Name)
+										elseif _G._services.RunService:IsStudio() and networkOwner.Value == nil then
+											warn("AutoOwnership | Set NetworkOwner to the server")
+										end
+
+										if networkOwner.Value ~= nil and autoOwnershipEnabled then
+											autoOwnershipEnabled = false
+											ball:SetNetworkOwner(networkOwner.Value)
+											localMaid:DoCleaning()
+										end
+									else
+										localMaid:DoCleaning()
+									end
+								end)
+							end
+						end
+					end
+				end)
+			end)
+		end
+	end,
+}
