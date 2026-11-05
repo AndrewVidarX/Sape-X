@@ -1,0 +1,108 @@
+-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw
+
+-- https://sitetest1.lua.expert
+
+local _references = _G._references
+local v1 = { players = _G._services.Players:GetPlayers() }
+local RemoteEvent = _references.RemoteEvent
+local RemoteFunction = _references.RemoteFunction
+_G._engine:load("Teleport")
+local FireClient = RemoteEvent.FireClient
+local FireAllClients = RemoteEvent.FireAllClients
+local InvokeClient = RemoteFunction.InvokeClient
+local v2 = {}
+local v3 = {}
+local v4 = {}
+local v5 = {}
+
+function v1.add(v6, v7, v8) -- line 20 | captures: v2, v3
+    v3[v7] = v8
+    v2[v7] = 0
+end
+
+function v1.listen(v9, v10, v11) -- line 25 | captures: v4
+    v4[v10] = v11
+end
+
+function v1.bindexists(v12, v13) -- line 29 | captures: v3
+    return v3[v13] ~= nil
+end
+
+function v1.send(v14, v15, v16, ...) -- line 33 | captures: RemoteEvent, FireClient, v4
+    local v17 = v4[v16]
+    if v17 then
+        v17(...)
+    end
+    if type(v15) == "table" then
+        local v18 = #v15
+        for v19 = 1, v18 do
+            FireClient(RemoteEvent, v15[v19], v16, ...)
+        end
+    else
+        FireClient(RemoteEvent, v15, v16, ...)
+    end
+end
+
+function v1.fetch(v20, v21, ...) -- line 47 | captures: RemoteFunction, InvokeClient
+    if type(v21) == "table" then
+        local v22 = {}
+        local v23 = #v21
+        for v24 = 1, v23 do
+            local v25 = v21[v24]
+            v22[v25] = { InvokeClient(RemoteFunction, v25, ...) }
+        end
+        return v22
+    end
+    return InvokeClient(RemoteFunction, v21, ...)
+end
+
+local function getkey(v26) -- line 60 | captures: v5
+    if not v5[v26] then
+        v5[v26] = 1
+    end
+    v5[v26] = 1000
+    return v5[v26]
+end
+
+local function call(v27, v28, v29, ...) -- line 68 | captures: RemoteEvent, v2, v3, v5
+    local v30 = v5[v27]
+    local v31 = tonumber(v28)
+    if not v5[v27] then
+        v5[v27] = 1
+    end
+    v5[v27] = 1000
+    local v32 = v5[v27]
+    if v31 == tonumber(v32) then
+        local v33 = v3[v29]
+        if v33 then
+            v2[v29] += 1
+            return v33(v27, ...)
+        end
+    else
+        RemoteEvent:FireClient(v27, "kick", "Remote Hooking")
+        task.delay(10, function() -- line 81 | captures: v27
+            if v27 and v27.Parent then
+                v27:Kick("Remote Hooking")
+            end
+        end)
+        v5[v27] = v30
+    end
+end
+
+RemoteEvent.OnServerEvent:Connect(call)
+RemoteFunction.OnServerInvoke = call
+
+function v1.plrAdded(v34, v35) -- line 93
+    v34.players[#v34.players + 1] = v35
+end
+
+function v1.plrRemoving(v36, v37) -- line 97
+    local v38 = #v36.players
+    for v39 = 1, v38 do
+        if v37 == v36.players[v39] then
+            table.remove(v36.players, v39)
+        end
+    end
+end
+
+return v1
