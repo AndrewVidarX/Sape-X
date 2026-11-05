@@ -1,0 +1,529 @@
+-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw
+
+-- https://sitetest1.lua.expert
+
+local _engine = _G._engine
+_engine:load("String", "utils")
+local Maid = _engine:load("Maid")
+_engine:load("Network").new()
+local ParticleEmitter = _engine:load("ParticleEmitter")
+local References = _engine.References
+local Services = _engine.Services
+local LocalPlayer = Services.Players.LocalPlayer
+local v1 = workspace:WaitForChild("game", 100) or workspace:FindFirstChild("game")
+local v2 = v1 and (v1:WaitForChild("balls", 100) or v1:FindFirstChild("balls"))
+local v3
+
+if v2 then
+    v3 = v2
+else
+    local Folder = Instance.new("Folder")
+    Folder.Name = "balls"
+    Folder.Parent = v1 or workspace
+    v3 = Folder
+end
+local v4 = v3:WaitForChild("spawns", 30) or v3:FindFirstChild("spawns")
+
+if not v4 then
+    v4 = Instance.new("Folder")
+    v4.Name = "spawns"
+    v4.Parent = v3
+end
+local v5 = v3:WaitForChild("client", 30)
+local v6 = v5
+
+if not v5 then
+    v5 = v3:FindFirstChild("client")
+    v6 = v5
+end
+
+if not v5 then
+    v5 = Instance.new("Folder")
+    v6 = v5
+    v5.Name = "client"
+    v5.Parent = v3
+end
+local v7 = v3:WaitForChild("server", 30)
+local v8 = v7
+
+if not v7 then
+    v7 = v3:FindFirstChild("server")
+    v8 = v7
+end
+
+if not v7 then
+    v7 = Instance.new("Folder")
+    v8 = v7
+    v7.Name = "server"
+    v7.Parent = v3
+end
+Services.CollectionService:AddTag(v3, "BallsFolder")
+Services.CollectionService:AddTag(v4, "SpawnersFolder")
+Services.CollectionService:AddTag(v5, "ClientBallsFolder")
+Services.CollectionService:AddTag(v7, "ServerBallsFolder")
+local v9 = {
+    instancesToRename = { v3, v5, v7, v4 },
+    spawned = {}
+}
+
+local function isSolidObject(v10) -- line 52
+    return table.find({
+        "grass",
+        "outer",
+        "wall",
+        "frame",
+        "collide",
+        "support",
+        "support main",
+        "support top",
+        "ropes"
+    }, string.lower(v10.Name))
+end
+
+function v9.create(v11, v12) -- line 56 | captures: v6, Maid, ParticleEmitter, References, Services, LocalPlayer, isSolidObject
+    if not v12 then
+        return
+    end
+    local v13 = v12:WaitForChild("properties", 100)
+    local v14 = v12:WaitForChild("network", 100)
+    local v15 = v12:WaitForChild("design", 100)
+    local v16 = false
+    local v17 = Maid.new()
+    local v18 = {}
+    local v19, v20, v21, v22
+    if v14 then
+        local v23 = v14:WaitForChild("networkOwner", 100)
+        v19 = v23
+        local v24 = v14:WaitForChild("owner", 100)
+        v20 = v24
+        v21 = v23
+        v22 = v24
+    end
+    v15:Destroy()
+    v12.Transparency = 1
+    local v25 = References.Main.RF:Clone()
+    v25.Parent = v6
+    v25.CFrame = v12.CFrame
+    v25.Anchored = true
+    v25.Massless = true
+    v25.CanCollide = false
+    v25.CanTouch = false
+    v25.CanQuery = false
+    local v26 = References.Main.effects.trail:Clone()
+    v26.Parent = workspace:WaitForChild("game").debug
+    local next_2 = next
+    local v27, v28 = v25:GetAttributes()
+    for v29, v30 in next_2, v27, v28 do
+        v25:SetAttribute(v29, nil)
+    end
+    if v13:FindFirstChild("spawner") then
+        v13.spawner:Clone().Parent = v25:WaitForChild("properties", 100)
+    end
+    v17:GiveTask(v25)
+    v17:GiveTask(v26)
+    local next_3 = next
+    local v31, v32 = v25:GetChildren()
+    for v33, v34 in next_3, v31, v32 do
+        if v34.Name == "gravity" or v34.Name == "friction" or v34.Name == "knuckle" or v34.Name == "linearFriction" or v34.Name == "angularFriction" or v34.Name == "magnus" or v34.Name == "physics" then
+            v34:Destroy()
+        end
+    end
+    if References.Main.balls:FindFirstChild(References.Main.config.Ball.Value) then
+        local v35 = References.Main.balls[References.Main.config.Ball.Value]:Clone()
+        v35.Parent = v25.design
+        v35.Size = v25.Size
+        v35.CFrame = v25.CFrame
+        v25.Transparency = 1
+        local v36 = Instance.new("WeldConstraint", v35)
+        v36.Part0 = v35
+        v36.Part1 = v25
+    end
+    local next_4 = next
+    local v37, v38 = workspace:WaitForChild("game").replication:GetChildren()
+    for v39, v40 in next_4, v37, v38 do
+        if v40 then
+            local Name = v40.Name
+            local UserId = LocalPlayer.UserId
+            if Name == tostring(UserId) then
+                local v41 = v40:WaitForChild("reference", 100)
+                local v42 = v40:WaitForChild("position", 100)
+                local v43 = v40:WaitForChild("orientation", 100)
+                if v41 and v42 and v43 then
+                    v18 = v41.Value == v12 and
+                        {
+                            ball = v40,
+                            position = v42,
+                            orientation = v43
+                        } or
+                        v18
+                    local Changed = v41.Changed
+                    local v44 = v40
+                    v17.referenceChanged = Changed:Connect(function() -- line 136 | captures: v18, v12, v41, v42, v43, v44
+                        if v41.Value == v12 then
+                            v18 = {
+                                ball = v44,
+                                position = v42,
+                                orientation = v43
+                            }
+                        end
+                    end)
+                end
+            end
+        end
+    end
+    local ChildAdded = workspace:WaitForChild("game").replication.ChildAdded
+    v17.childAdded = ChildAdded:Connect(function(v45) -- line 150 | captures: v18, v12, v17, LocalPlayer
+        local v46, v47, v48, v49
+        if v45 then
+            local Name = v45.Name
+            local UserId = LocalPlayer.UserId
+            if Name == tostring(UserId) then
+                v46 = v45:WaitForChild("reference", 100)
+                v47 = v45:WaitForChild("position", 100)
+                v48 = v45:WaitForChild("orientation", 100)
+                if v46 and v47 and v48 then
+                    if v46.Value == v12 then
+                        v18 = {
+                            ball = v45,
+                            position = v47,
+                            orientation = v48
+                        }
+                    end
+                    v49 = false
+                else
+                    v49 = true
+                end
+            else
+                v49 = true
+            end
+        else
+            v49 = true
+        end
+        if v49 then
+            return
+        end
+        local Changed = v46.Changed
+        local v50 = v46
+        local v51 = v47
+        local v52 = v48
+        v17.referenceChanged = Changed:Connect(function() -- line 166 | captures: v45, v50, v51, v52, v18, v12
+            if v50.Value == v12 then
+                v18 = {
+                    ball = v45,
+                    position = v51,
+                    orientation = v52
+                }
+            end
+        end)
+    end)
+    local ChildAdded_2 = v13.ChildAdded
+    v17.spawnerAdded = ChildAdded_2:Connect(function(v53) -- line 179 | captures: v25
+        if not (v53 and v53.Name == "spawner") then
+            return
+        end
+        local next_2 = next
+        local v54, v55 = v25:WaitForChild("properties", 100):GetChildren()
+        for v56, v57 in next_2, v54, v55 do
+            if v57 and v57.Name == "spawner" then
+                v57:Destroy()
+            end
+        end
+        v53:Clone().Parent = v25:WaitForChild("properties", 100)
+    end)
+    local Changed = References.Main.config.Ball.Changed
+    v17.ballDesign = Changed:Connect(function() -- line 194 | captures: v25, References
+        if not References.Main.balls:FindFirstChild(References.Main.config.Ball.Value) then
+            return
+        end
+        v25.design:ClearAllChildren()
+        local v58 = References.Main.balls[References.Main.config.Ball.Value]:Clone()
+        v58.Parent = v25.design
+        v58.Size = v25.Size
+        v58.CFrame = v25.CFrame
+        v25.Transparency = 1
+        local v59 = Instance.new("WeldConstraint", v58)
+        v59.Part0 = v58
+        v59.Part1 = v25
+    end)
+    local ChildAdded_3 = v12.ChildAdded
+    v17.bodyMoverAdded = ChildAdded_3:Connect(function(v61) -- line 208 | captures: v14
+        if v61 and v61:IsA("BodyPosition") and not v61:GetAttribute("origin") then
+            v14:send("kick", "Asset Hooking", true)
+        end
+    end)
+    local ChildAdded_4 = v13.ChildAdded
+    v17.propertyAdded = ChildAdded_4:Connect(function(v62) -- line 214 | captures: v12, Maid, Services, LocalPlayer, isSolidObject
+        if not (v62 and v62.Name == "transition") and v62 and v62.Name == "args" then
+            task.spawn(function() -- line 218 | captures: v62, v12, Maid, Services, LocalPlayer, isSolidObject
+                if v12:GetAttribute("networkOwner") ~= LocalPlayer.UserId then
+                    return
+                end
+                while true do
+                    if v62:FindFirstChild("loaded") then
+                        break
+                    end
+                    task.wait()
+                end
+                local next_2 = next
+                local v63, v64 = v62:GetChildren()
+                local v65 = {}
+                for v66, v67 in next_2, v63, v64 do
+                    if v67 and v67.Parent then
+                        v65[v67.Name] = v67.Value
+                    end
+                end
+                if not v65.keepBodyVelocities then
+                    local next_2 = next
+                    local v68, v69 = v65.ball:GetChildren()
+                    for v70, v71 in next_2, v68, v69 do
+                        if v71 and v71:IsA("BodyVelocity") then
+                            v71:Destroy()
+                        end
+                    end
+                end
+                if not v65.conserveAngularVelocity then
+                    local next_2 = next
+                    local v72, v73 = v65.ball:GetChildren()
+                    for v74, v75 in next_2, v72, v73 do
+                        if v75 and v75:IsA("BodyAngularVelocity") then
+                            v75:Destroy()
+                        end
+                    end
+                end
+                local v76 = Instance.new("BodyVelocity", v65.ball)
+                v76.MaxForce = v65.maxForce or Vector3.new(1, 1, 1) * (1/0)
+                local X = v65.vector.X
+                local v77 = math.min(X, 140)
+                local Y = v65.vector.Y
+                local v78 = math.min(Y, 125)
+                local Z = v65.vector.Z
+                local v79 = math.min(Z, 140)
+                v76.Velocity = Vector3.new(v77, v78, v79)
+                local X_2 = v65.vector.X
+                local v80 = math.max(-140, X_2)
+                local Y_2 = v65.vector.Y
+                local v81 = math.max(-125, Y_2)
+                local Z_2 = v65.vector.Z
+                local v82 = math.max(-140, Z_2)
+                v76.Velocity = Vector3.new(v80, v81, v82)
+                Services.Debris:AddItem(v76, 0.3)
+                if v65.curve then
+                    local v83 = Maid.new()
+                    local Magnitude = Vector2.new(v65.vector.X, v65.vector.Z).Magnitude
+                    local Y = v65.vector.Y
+                    local v84 = 50 * (v65.ball.CustomPhysicalProperties.Density * 10)
+                    local v85
+                    if v65.curveMultiplier then
+                        v84, v85 = v84 * v65.curveMultiplier, 50 * v65.curveMultiplier
+                    else
+                        v85 = 50
+                    end
+                    local v86 = Vector3.new()
+                    local Z = v65.vector.Z
+                    local v87 = -v65.vector.X
+                    local v88 = v86 + Vector3.new(Z, 0, v87).Unit * -Magnitude / 5
+                    if v65.direction == "left" then
+                        v88 += Vector3.new(0, v85, 0)
+                    elseif v65.direction == "right" then
+                        local v89 = -v85
+                        v88 += Vector3.new(0, v89, 0)
+                    end
+                    local v90 = v88:Cross(v65.vector)
+                    if v90.Magnitude > 0 then
+                        v90 = v90.Unit * v84
+                    end
+                    if v65.spinType and v65.spinType == "backspin" then
+                        if v65.direction == "none" then
+                            v88 *= Vector3.new(3, 3, 3)
+                        else
+                            v88 *= Vector3.new(-1, -2, -1)
+                        end
+                    end
+                    local v91 = v90 * Vector3.new(1, 0.5, 1) * Vector3.new(0.5, 1, 0.5)
+                    local v92 = Instance.new("BodyAngularVelocity", v65.ball)
+                    v92.AngularVelocity = v88 * 1.5
+                    v92.MaxTorque = Vector3.new(1, 1, 1) * (1/0)
+                    Services.Debris:AddItem(v92, 0.3)
+                    local v93 = Instance.new("BodyForce", v65.ball)
+                    v93.Force = v91
+                    local v94 = Magnitude / 120
+                    if v65.direction == "left" or v65.direction == "right" then
+                        Services.TweenService:Create(v93, TweenInfo.new(v94, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), { Force = v91 * Vector3.new(0.25, -0.5, 0.25) }):Play()
+                    else
+                        Services.TweenService:Create(v93, TweenInfo.new(v94 * 1.15, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), { Force = v91 * Vector3.new(0.25, -0.25, 0.25) }):Play()
+                    end
+                    task.delay(0.35, function() -- line 322 | captures: v65, v83, v92, v93, isSolidObject
+                        local function onTouched(v95) -- line 324 | captures: v65, v83, v92, v93, isSolidObject
+                            if not isSolidObject(v95) then
+                                return
+                            end
+                            v83:DoCleaning()
+                            v93:Destroy()
+                            if v65.spinType and v65.spinType == "backspin" then
+                                v92.AngularVelocity *= Vector3.new(1, 0, 1)
+                                local ball = v65.ball
+                                ball.AssemblyAngularVelocity *= Vector3.new(1, 0, 1)
+                                local ball_2 = v65.ball
+                                ball_2.AssemblyLinearVelocity /= Vector3.new(1.4500000476837158, 0.75, 1.4500000476837158)
+                            else
+                                local ball = v65.ball
+                                ball.AssemblyAngularVelocity *= 0.8
+                            end
+                        end
+
+                        v83.onTouched = v65.ball.Touched:Connect(onTouched)
+                        v83.onTouchEnded = v65.ball.TouchEnded:Connect(onTouched)
+                    end)
+                end
+                if not v65.spinType or not (v65.spinType == "backspin") or v65.curve then
+                    return
+                end
+                local v96 = Maid.new()
+
+                local function v60(v97) -- line 354 | captures: v65, v96, isSolidObject
+                    if not isSolidObject(v97) then
+                        return
+                    end
+                    v96:DoCleaning()
+                    local ball = v65.ball
+                    ball.AssemblyLinearVelocity /= Vector3.new(1.350000023841858, 0.75, 1.350000023841858)
+                end
+
+                v96.onTouched = v65.ball.Touched:Connect(v60)
+                v96.onTouchEnded = v65.ball.TouchEnded:Connect(v60)
+            end)
+        end
+    end)
+    local Touched = v12.Touched
+    v17.onTouched = Touched:Connect(function(v98) -- line 375 | captures: v16, v12, ParticleEmitter, References, Services
+        local v99
+        if (v98.Name == "Grass" or v98.Name == "Outer") and v12.AssemblyLinearVelocity.Y >= 10 then
+            if v16 then
+                v99 = true
+            else
+                v16 = true
+                local v100 = References.Main.sounds.Ball.Grass:Clone()
+                v100.Parent = v12
+                v100:Play()
+                Services.Debris:AddItem(v100, v100.TimeLength)
+                if References.Main.config.Weather.Value == "Rain" then
+                    local X = v12.Position.X
+                    local Z = v12.Position.Z
+                    ParticleEmitter:emit(Vector3.new(X, 0.615, Z), References.Main.effects.splash, {
+                        enum = "lifeTime",
+                        lifeTime = 0.1
+                    })
+                end
+                v99 = false
+            end
+        else
+            v99 = true
+        end
+        if not v99 then
+            task.delay(0.35, function() -- line 391 | captures: v16
+                v16 = false
+            end)
+        end
+    end)
+    local TouchEnded = v12.TouchEnded
+    v17.onTouchEnded = TouchEnded:Connect(function(v101) -- line 397 | captures: v16, v12, References, Services
+        if not (v101.Name == "Grass" or v101.Name == "Outer") or not (v12.AssemblyLinearVelocity.Y >= 10) or v16 then
+            return
+        end
+        v16 = true
+        local v102 = References.Main.sounds.Ball.Grass:Clone()
+        v102.Parent = v12
+        v102:Play()
+        Services.Debris:AddItem(v102, v102.TimeLength)
+        task.delay(0.35, function() -- line 405 | captures: v16
+            v16 = false
+        end)
+    end)
+    if v21 and v22 then
+        local Changed = v21.Changed
+        v17.networkOwnerChanged = Changed:Connect(function() -- line 413 | captures: v19, v12, v25, LocalPlayer
+            if v19.Value == LocalPlayer then
+                v12.CFrame = v25.CFrame
+            end
+        end)
+        local Changed_2 = v22.Changed
+        v17.ownerChanged = Changed_2:Connect(function() -- line 418 | captures: v20, v12, v25, LocalPlayer
+            if v20.Value == LocalPlayer then
+                v12.CFrame = v25.CFrame
+            end
+        end)
+    end
+    v25.Anchored = true
+    local RenderStepped = Services.RunService.RenderStepped
+    v17.renderStepped = RenderStepped:Connect(function() -- line 426 | captures: v18, v12, v14, v17, v25, v26, References
+        v26.Position = v12.Position
+        if not (v12.Position.Y >= 7.5) and References.Main.config.Weather.Value == "Rain" and References.Profile.settings.Visual["Weather Effects"].Value then
+            v26.trail.Enabled = true
+        else
+            v26.trail.Enabled = false
+        end
+        if v12 and v12.Parent and v12.Size ~= References.Main.RF.Size then
+            v17:DoCleaning()
+            v14:send("Kick", "DataModel Tampering")
+        end
+        if v18 and v18.ball and v18.position and v18.orientation then
+            v18.position.Position = v12.Position
+            v18.orientation.CFrame = CFrame.Angles(v12.CFrame:ToOrientation())
+        end
+        if not (v25:FindFirstChild("replication") and v12:FindFirstChild("replication")) then
+            return
+        end
+        v25.CFrame = v12.CFrame
+        v25.replication.AssemblyCFrame.Value = v12.CFrame
+        v25.replication.AssemblyLinearVelocity.Value = v12.replication.AssemblyLinearVelocity.Value
+        v25.replication.AssemblyAngularVelocity.Value = v12.replication.AssemblyAngularVelocity.Value
+    end)
+    local instancesToRename = v11.instancesToRename
+    table.insert(instancesToRename, v12)
+    local instancesToRename_2 = v11.instancesToRename
+    table.insert(instancesToRename_2, v25)
+    v11.spawned[v12] = v17
+end
+
+local function clear(v103, v104) -- line 459
+    if table.find(v103.instancesToRename, v104) then
+        table.remove(v103.instancesToRename, table.find(v103.instancesToRename, v104))
+    end
+    if v103.spawned[v104] then
+        v103.spawned[v104]:DoCleaning()
+        v103.spawned[v104] = nil
+    end
+end
+
+v9.clear = clear
+
+function v9.init(v105) -- line 470 | captures: v8
+    local next_2 = next
+    local v106, v107 = v8:GetChildren()
+    for v108, v109 in next_2, v106, v107 do
+        if v109 and v109.Parent then
+            v105:create(v109)
+        end
+    end
+    v8.ChildAdded:Connect(function(v110) -- line 481 | captures: v105
+        if v110 and v110.Parent then
+            v105:create(v110)
+        end
+    end)
+    v8.ChildRemoved:Connect(function(v111) -- line 487 | captures: v105
+        v105:clear(v111)
+    end)
+end
+
+local v112 = { "holder", "manager", "referee", "replication", "system" }
+task.spawn(function() -- line 494 | captures: v9, v112
+    while true do
+        for v113, v114 in next, v9.instancesToRename do
+            if v114 then
+                v114.Name = v112[math.random(1, #v112)]
+            end
+        end
+        task.wait(10)
+    end
+end)
+return v9
