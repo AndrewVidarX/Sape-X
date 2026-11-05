@@ -1,0 +1,103 @@
+-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw
+
+-- https://sitetest1.lua.expert
+
+local v1 = { Tag = "Ball" }
+
+function v1.IsBall(v2) -- line 9 | captures: v1
+    return _G._services.CollectionService:HasTag(v2, v1.Tag)
+end
+
+local function IsClientBall(v3) -- line 14
+    if v3 and v3:FindFirstChild("properties") and v3.properties:FindFirstChild("spawner") then
+        local next_2 = next
+        local v4, v5 = v3.Parent.Parent:GetChildren()
+        local v6, v7
+        for v8, v9 in next_2, v4, v5 do
+            if _G._services.CollectionService:HasTag(v9, "SpawnersFolder") then
+                v6 = v9
+            elseif _G._services.CollectionService:HasTag(v9, "ServerBallsFolder") then
+                v7 = v9
+            end
+        end
+        if v6 and v7 then
+            local next_2 = next
+            local v10, v11 = v6:GetChildren()
+            for v12, v13 in next_2, v10, v11 do
+                if v13 and v3.properties.spawner.Value == v13 then
+                    local next_2 = next
+                    local v14, v15 = v7:GetChildren()
+                    for v16, v17 in next_2, v14, v15 do
+                        if v17 and v17:FindFirstChild("properties") and v17.properties:FindFirstChild("spawner") and v17.properties.spawner.Value == v13 then
+                            return v17
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
+v1.IsClientBall = IsClientBall
+
+function v1.GetBalls(v18) -- line 51 | captures: v1
+    local next_2 = next
+    local v19, v20 = _G._services.CollectionService:GetTagged(v1.Tag)
+    local v21 = {}
+    for v22, v23 in next_2, v19, v20 do
+        if v23 then
+            local replay
+            if v18 then
+                replay = v23:FindFirstAncestor("replay")
+            end
+            if v18 and not replay or not v18 and not v18 then
+                table.insert(v21, v23)
+            end
+        end
+    end
+    return v21
+end
+
+local function GetBallFolder() -- line 66
+    local next_2 = next
+    local v24, v25 = workspace.game:GetChildren()
+    for v26, v27 in next_2, v24, v25 do
+        if v27 and (v27.Name == "balls" or v27:HasTag("BallsFolder")) then
+            return v27
+        end
+    end
+end
+
+v1.GetBallFolder = GetBallFolder
+
+function v1.GetClientBallFolder() -- line 77 | captures: v1
+    local v28 = v1.GetBallFolder()
+    local next_2 = next
+    local v29, v30 = v28:GetChildren()
+    for v31, v32 in next_2, v29, v30 do
+        if v32 and (v32.Name == "client" or v32:HasTag("ClientBallsFolder")) then
+            return v32
+        end
+    end
+end
+
+function v1.GetServerBallFolder() -- line 90 | captures: v1
+    local v33 = v1.GetBallFolder()
+    local next_2 = next
+    local v34, v35 = v33:GetChildren()
+    for v36, v37 in next_2, v34, v35 do
+        if v37 and (v37.Name == "server" or v37:HasTag("ServerBallsFolder")) then
+            return v37
+        end
+    end
+end
+
+local v38 = v1.GetClientBallFolder()
+local v39 = v1.GetServerBallFolder()
+
+v1.ClientBallAdded = v38.ChildAdded
+v1.ClientBallRemoved = v38.ChildRemoved
+v1.BallAdded = v39.ChildAdded
+v1.BallRemoved = v39.ChildRemoved
+return v1
