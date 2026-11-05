@@ -1,0 +1,1270 @@
+local engine = require(game:GetService("ReplicatedStorage").engine)
+local references = engine.References
+local services = engine.Services
+
+local KAIEvent = services.ReplicatedStorage:WaitForChild("KAIEvent")
+
+local freeKick = engine:load("Freekick")
+local goalKick = engine:load("Goalkick")
+local profiles = engine:load("Profiles")
+local penalty = engine:load("Penalty")
+local corner = engine:load("Corner")
+
+local function stopAllSounds()
+	local chantBaseHolder = game.ReplicatedStorage.game.sounds.RFL.ChantBase
+	local chantsHolder = game.ReplicatedStorage.game.sounds.RFL.Chants
+
+	for _,soundFolder in pairs(chantBaseHolder:GetChildren()) do
+		local sound = soundFolder:FindFirstChildWhichIsA("Sound")
+
+		if sound then
+			sound:Stop()
+		end
+	end
+
+	for _,soundFolder in pairs(chantsHolder:GetChildren()) do
+		for _, sound in pairs(soundFolder:GetChildren()) do
+			if sound:IsA("Sound") then
+				sound:Stop()
+			end
+		end
+	end
+end
+
+local commands = {
+	{{'rall'},{'Removes every ball',':rall'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _,v in next, _G._references.Main.config.Override:GetChildren() do
+			if v and (v.Name == "NoReact" or v.Name == "Goal") then
+				v:Destroy()
+			end
+		end
+
+		for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+			if v and (v.Name == "NoReact" or v.Name == "Goal") then
+				v:Destroy()
+			end
+		end
+
+		for _,v in next, workspace.game.balls.spawns:GetChildren() do
+			if v then
+				v:Destroy()
+			end
+		end
+
+		_G._references.Main.fans.Cheer.Value = false
+		_G._references.Main.config.Offside:ClearAllChildren()
+	end},
+
+	{{'b','ball'},{'Spawns a ball in front of the player',':ball'},0,{'player'},function(plr,args)
+		if plr.UserId ~= game.PrivateServerOwnerId and plr.UserId ~= 2731804921 and plr.UserId ~= 423168665 and plr.UserId ~= 848861090 then
+			return
+		end
+
+		for _, player in next, args[1] do
+			if player then
+				for _,v in next, _G._references.Main.config.Override:GetChildren() do
+					if v and (v.Name == "NoReact" or v.Name == "Goal") then
+						v:Destroy()
+					end
+				end
+
+				for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+					if v and (v.Name == "NoReact" or v.Name == "Goal") then
+						v:Destroy()
+					end
+				end
+
+				if references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+
+				for _,v in next, workspace.game.balls.spawns:GetChildren() do
+					if v and v:FindFirstChild("possessor") and v.possessor.Value == player.UserId then
+						v:Destroy()
+					end
+				end
+
+				references.Main.config.NoBall.Value = false
+				_G._references.Main.fans.Cheer.Value = false
+				_G._references.Main.config.Offside:ClearAllChildren()
+
+				local spawner = Instance.new("CFrameValue")
+				spawner.Name = "RF"
+				spawner.Value = player.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -2.5)
+				spawner.Parent = workspace.game.balls.spawns
+
+				local possessor = Instance.new("IntValue")
+				possessor.Name = "possessor"
+				possessor.Value = player.UserId
+				possessor.Parent = spawner
+			end
+		end
+	end},
+
+	{{'pb','publicball'},{'Spawns a ball in front of the player',':publicball'},0,{},function(player,args)
+		if references.Main.config.PublicBall.Value and not references.Main.config.AutoSystem.Value then
+			for _,v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and (v.Name == "NoReact" or v.Name == "Goal") then
+					v:Destroy()
+				end
+			end
+
+			for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+				if v and (v.Name == "NoReact" or v.Name == "Goal") then
+					v:Destroy()
+				end
+			end
+
+			for _,v in next, workspace.game.balls.spawns:GetChildren() do
+				if v and v:FindFirstChild("possessor") and v.possessor.Value == player.UserId then
+					v:Destroy()
+				end
+			end
+
+			references.Main.config.NoBall.Value = false
+			_G._references.Main.fans.Cheer.Value = false
+			_G._references.Main.config.Offside:ClearAllChildren()
+
+			local spawner = Instance.new("CFrameValue")
+			spawner.Name = "RF"
+			spawner.Value = player.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -2.5)
+			spawner.Parent = workspace.game.balls.spawns
+
+			local possessor = Instance.new("IntValue")
+			possessor.Name = "possessor"
+			possessor.Value = player.UserId
+			possessor.Parent = spawner
+		end
+	end},
+
+	{{'kickoff', 'ko'},{'Teleports both teams to their kick off positions.',':kickoff'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _,v in next, services.Players:GetPlayers() do
+			if v and v.Character and v.Character:FindFirstChild("HumanoidRootPart") and v.TeamColor then
+				local teleport = Instance.new("BoolValue", v)
+				teleport.Name = "Teleport"
+				teleport.Value = true
+				_G._services.Debris:AddItem(teleport, 3)
+
+				if v.TeamColor == BrickColor.new("Storm blue") then
+					v.Character:SetPrimaryPartCFrame(workspace.game.positions.home.CFrame)
+				elseif v.TeamColor == BrickColor.new("Navy blue") then
+					v.Character:SetPrimaryPartCFrame(workspace.game.positions.homeGK.CFrame)
+				elseif v.TeamColor == BrickColor.new("Crimson") then
+					v.Character:SetPrimaryPartCFrame(workspace.game.positions.away.CFrame)
+				elseif v.TeamColor == BrickColor.new("Maroon") then
+					v.Character:SetPrimaryPartCFrame(workspace.game.positions.awayGK.CFrame)
+				else
+					local positions = {}
+
+					for _, part in next, workspace.spawns.spawn:GetChildren() do
+						if part.Name == "studio" then
+							table.insert(positions, part)
+						end
+					end
+
+					v.Character:SetPrimaryPartCFrame(positions[math.random(1, #positions)].CFrame * CFrame.new(0, 3, 0))
+				end
+			end
+		end
+	end},
+
+	{{'resetlayout', 'rlayout'},{'Resets the player tool layout.',':resetlayout userid'},3,{'number'},function(player,args)
+		local userid = tonumber(args[1])
+
+		local success, userIdFromName = pcall(function()
+			return _G._services.Players:GetUserIdFromNameAsync(args[1])
+		end)
+
+		if success and userIdFromName then
+			userid = userIdFromName
+		end
+
+		if userid and userid ~= 0 then
+			profiles._resetLayout(userid)
+		end
+	end},
+
+	{{'refund'},{'Refunds the player.',':refund 99999 1000'},3,{'number','number'},function(player,args)
+		local userid = tonumber(args[1])
+
+		local success, userIdFromName = pcall(function()
+			return _G._services.Players:GetUserIdFromNameAsync(args[1])
+		end)
+
+		if success and userIdFromName then
+			userid = userIdFromName
+		end
+
+		if userid and args[2] then
+			profiles._updatePoints(userid, args[2])
+		end
+	end},
+
+	{{'gban'},{'Bans the player through Roblox API.',':gban userId days reason'},3,{'number','number','string'},function(player,args)
+		local userid = tonumber(args[1])
+		local reason = tostring(args[2])
+
+		if userid and userid ~= 0 then
+			if tonumber(args[2]) == 0 then
+				args[2] = -1
+			end
+
+			local durationInDays = -1
+
+			if tonumber(args[2]) > 0 then
+				durationInDays = tonumber(args[2]) * 60 * 60 * 24
+			end
+
+			local config = {
+				UserIds = {userid},
+				Duration = durationInDays,
+				DisplayReason = reason,
+				PrivateReason = reason,
+				ExcludeAltAccounts = false,
+				ApplyToUniverse = true
+			}
+
+			local success, errorMessage = pcall(function()
+				return _G._services.Players:BanAsync(config)
+			end)
+
+			print(success, errorMessage)
+		end
+	end},
+
+	{{'ungban'},{'Unbans the player through Roblox API.',':ungban 99999'},3,{'number'},function(player,args)
+		local userid = tonumber(args[1])
+
+		if userid and userid ~= 0 then
+			local config = {
+				UserIds = {userid},
+				ApplyToUniverse = true
+			}
+
+			local success, errorMessage = pcall(function()
+				return _G._services.Players:UnbanAsync(config)
+			end)
+
+			print(success, errorMessage)
+		end
+	end},
+
+	{{'ungameban', 'ungb'},{'Removes gameban from the player.',':ungameban player'},3,{'string'},function(player,args)
+		local userid = tonumber(args[1])
+
+		local success, userIdFromName = pcall(function()
+			return _G._services.Players:GetUserIdFromNameAsync(args[1])
+		end)
+
+		if success and userIdFromName then
+			userid = userIdFromName
+		end
+
+		if userid and args[1] then
+			profiles._unbanPlayer(userid)
+		end
+	end},
+
+	{{'yc'},{'Gives the player a yellow card.',':yc'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v and not references.Main.cards.yellow:FindFirstChild(v.Name) then
+				if references.Main.cards.warning:FindFirstChild(v.Name) then
+					references.Main.cards.warning[v.Name]:Destroy()
+				end
+
+				local objectValue = Instance.new("ObjectValue")
+				objectValue.Name = v.Name
+				objectValue.Value = v
+				objectValue.Parent = references.Main.cards.yellow
+			end
+		end
+	end},
+
+	{{'warning'},{'Gives the player a warning.',':warning'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v and not references.Main.cards.warning:FindFirstChild(v.Name) then
+				local objectValue = Instance.new("ObjectValue")
+				objectValue.Name = v.Name
+				objectValue.Value = v
+				objectValue.Parent = references.Main.cards.warning
+			end
+		end
+	end},
+
+	{{'rc'},{'Gives the player a red card.',':rc'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v and not references.Main.cards.red:FindFirstChild(v.Name) then
+				if references.Main.cards.yellow:FindFirstChild(v.Name) then
+					references.Main.cards.yellow[v.Name]:Destroy()
+				end
+
+				local objectValue = Instance.new("ObjectValue")
+				objectValue.Name = v.Name
+				objectValue.Value = v
+				objectValue.Parent = references.Main.cards.red
+			end
+		end
+	end},
+
+	{{'unyc'},{'Removes a yellow card from the player.',':unyc'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v and references.Main.cards.yellow:FindFirstChild(v.Name) then
+				references.Main.cards.yellow[v.Name]:Destroy()
+			end
+		end
+	end},
+
+	{{'unwarning'},{'Removes a warning from the player.',':unwarning'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v and references.Main.cards.warning:FindFirstChild(v.Name) then
+				references.Main.cards.warning[v.Name]:Destroy()
+			end
+		end
+	end},
+
+	{{'unrc'},{'Removes a red card from the player.',':unrc'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v and references.Main.cards.red:FindFirstChild(v.Name) then
+				references.Main.cards.red[v.Name]:Destroy()
+			end
+		end
+	end},
+
+	{{'rcards'},{'Resets all cards.',':rcards'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.cards.warning:ClearAllChildren()
+		references.Main.cards.yellow:ClearAllChildren()
+		references.Main.cards.red:ClearAllChildren()
+	end},
+
+	{{'auto'},{'Enables auto system.',':auto'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if references.Main and references.Main.config then
+			if references.Main.config:FindFirstChild("AutoSystem") then
+				references.Main.config.AutoSystem.Value = true
+			end
+			if references.Main.config:FindFirstChild("Auto") then
+				references.Main.config.Auto.Value = true
+			end
+			if references.Main.config:FindFirstChild("NoBall") then
+				references.Main.config.NoBall.Value = false
+			end
+			if references.Main.config:FindFirstChild("NoTimer") then
+				references.Main.config.NoTimer.Value = false
+			end
+		end
+	end},
+
+	{{'noauto'},{'Disables auto system.',':noauto'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if references.Main and references.Main.config then
+			if references.Main.config:FindFirstChild("AutoSystem") then references.Main.config.AutoSystem.Value = false end
+			if references.Main.config:FindFirstChild("Auto") then references.Main.config.Auto.Value = false end
+			if references.Main.config:FindFirstChild("NoBall") then references.Main.config.NoBall.Value = false end
+			if references.Main.config:FindFirstChild("NoTimer") then references.Main.config.NoTimer.Value = false end
+		end
+	end},
+
+	{{'autofans'},{'Enables auto fans.',':autofans'},3,{},function(player,args)
+		references.Main.config.AutoFans.Value = true
+	end},
+
+	{{'noautofans'},{'Disables auto fans.',':noautofans'},3,{},function(player,args)
+		references.Main.config.AutoFans.Value = false
+	end},
+
+	{{'anchor', 'a'},{'Anchors all balls.',':anchor'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _,v in next, workspace.game.balls.server:GetChildren() do
+			if v and v:IsA("BasePart") then
+				v.Anchored = true
+				v.AssemblyLinearVelocity = Vector3.zero
+				v.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end},
+
+	{{'unanchor', 'una'},{'Unanchors all balls.',':unanchor'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _,v in next, workspace.game.balls.server:GetChildren() do
+			if v and v:IsA("BasePart") then
+				v.Anchored = false
+				v.AssemblyLinearVelocity = Vector3.zero
+				v.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+	end},
+
+	{{'btp','ballteleport'},{'Teleports player to the ball.',':btp'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		local ball
+		if workspace:FindFirstChild("game") and workspace.game:FindFirstChild("balls") then
+			ball = workspace.game.balls:FindFirstChildWhichIsA("BasePart", true) or workspace.game.balls:FindFirstChildWhichIsA("Model", true)
+		end
+		if not ball then
+			ball = workspace:FindFirstChild("Ball", true)
+		end
+
+		if ball then
+			local targets = (args[1] and #args[1] > 0) and args[1] or {player}
+			for _, v in pairs(targets) do
+				if v and v.Character then
+					local root = v.Character:FindFirstChild("HumanoidRootPart") or v.Character.PrimaryPart
+					if root then
+						local teleport = Instance.new("BoolValue", v)
+						teleport.Name = "Teleport"
+						teleport.Value = true
+						if _G._services and _G._services.Debris then
+							_G._services.Debris:AddItem(teleport, 3)
+						end
+
+						local ballPart = ball
+						if ball:IsA("Model") then
+							ballPart = ball.PrimaryPart or ball:FindFirstChildWhichIsA("BasePart", true)
+						end
+						if ballPart then
+							root.CFrame = ballPart.CFrame + Vector3.new(0, 3, 0)
+						end
+					end
+				end
+			end
+		end
+	end},
+
+	{{'fk'},{'Gives player a freekick.',':fk'},3,{'player'},function(player,args)
+		if references.Main.config.AutoSystem.Value then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v.Character then
+				if workspace.game.debug:FindFirstChild(v.Name) then
+					return
+				end
+
+				task.spawn(function()
+					freeKick.new(v)
+				end)
+			end
+		end
+	end},
+
+	{{'ck'},{'Gives player a corner.',':ck'},3,{'player', 'string'},function(player,args)
+		if references.Main.config.AutoSystem.Value then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v.Character then
+				if workspace.game.debug:FindFirstChild(v.Name) then
+					return
+				end
+
+				task.spawn(function()
+					corner.new(v, args[2])
+				end)
+			end
+		end
+	end},
+
+	{{'pk'},{'Gives player a penalty.',':pk'},3,{'player', 'string'},function(player,args)
+		if references.Main.config.AutoSystem.Value then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v.Character then
+				if workspace.game.debug:FindFirstChild(v.Name) then
+					return
+				end
+
+				task.spawn(function()
+					penalty.new(v, args[2])
+				end)
+			end
+		end
+	end},
+
+	{{'gk'},{'Gives player a goalkick.',':gk'},3,{'player', 'string', 'string'},function(player,args)
+		if references.Main.config.AutoSystem.Value then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v.Character then
+				if workspace.game.debug:FindFirstChild(v.Name) then
+					return
+				end
+
+				task.spawn(function()
+					goalKick.new(v, args[2])
+				end)
+			end
+		end
+	end},
+
+	{{'sprinklers'},{'Spawns in sprinklers.',':sprinklers'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if not workspace.pitch:FindFirstChild("Sprinklers") then
+			local sprinklers = references.Main.storage.Sprinklers:Clone()
+			sprinklers.Parent = workspace.pitch
+
+			for _,v in next, sprinklers:GetDescendants() do
+				if v and v:IsA("Sound") then
+					v:Play()
+				end
+			end
+		end
+	end},
+
+	{{'nosprinklers'},{'Removes sprinklers.',':nosprinklers'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if workspace.pitch:FindFirstChild("Sprinklers") then
+			local sprinklers = workspace.pitch.Sprinklers
+
+			for _,v in next, sprinklers:GetDescendants() do
+				if v and v:IsA("Sound") then
+					v:Stop()
+				end
+			end
+
+			sprinklers:Destroy()
+		end
+	end},
+
+	{{'autorall'},{'Enables auto rall.',':autorall'},3,{},function(player,args)
+		references.Main.config.AutoRall.Value = true
+	end},
+
+	{{'unautorall'},{'Disables auto rall.',':unautorall'},3,{},function(player,args)
+		references.Main.config.AutoRall.Value = false
+	end},
+
+	{{'pbon'},{'Enables public ball spawning.',':pbon'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.PublicBall.Value = true
+	end},
+
+	{{'pboff'},{'Disables public ball spawning.',':pboff'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.PublicBall.Value = false
+	end},
+
+	{{'balls'},{'Provides the player with a ball selection list',':balls'},3,{},function(player,args)
+		references.RemoteEvent:FireClient(player, "ballSelection")
+	end},
+
+	{{'stadiums'},{'Provides the player with a stadium selection list',':stadiums'},3,{},function(player,args)
+		references.RemoteEvent:FireClient(player, "stadiumSelection")
+	end},
+
+	{{'boots'},{'Provides the player with a boot selection list',':boots'},0,{},function(player,args)
+		if _G._debug then
+			references.RemoteEvent:FireClient(player, "bootSelection")
+		end
+	end},
+
+	{{'accessories'},{'Provides the player with an accessory selection list',':accessories'},0,{},function(player,args)
+		if _G._debug then
+			references.RemoteEvent:FireClient(player, "accessorySelection")
+		end
+	end},
+
+	{{'close'},{'Closes the field door',':close'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		workspace.pitch.walls.door.CollisionGroup = "11_walls"
+		services.TweenService:Create(workspace.pitch.walls.door, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 0.98}):Play()
+	end},
+
+	{{'open'},{'Opens the field door',':open'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		workspace.pitch.walls.door.CollisionGroup = "4_balldoor"
+		services.TweenService:Create(workspace.pitch.walls.door, TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Transparency = 1}):Play()
+	end},
+
+	{{'c', 'crossers'},{'Spawns in crossers',':c'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if not workspace.pitch:FindFirstChild("crossers") then
+			references.Main.admin.crossers:Clone().Parent = workspace.pitch
+		end
+	end},
+
+	{{'noc', 'nocrossers'},{'Removes crossers',':noc'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if workspace.pitch:FindFirstChild("crossers") then
+			workspace.pitch.crossers:Destroy()
+		end
+	end},
+
+	{{'stads'},{'Shows a list of all the stadiums',':stads'},3,{},function(player,args)
+		local list = {}
+
+		for _,v in next, services.ServerStorage.stadiums:GetChildren() do
+			table.insert(list, v.Name)
+		end
+
+		KAIEvent:FireClient(player, "List", {"Stadiums", list})
+	end},
+
+	{{'rflstads'},{'Shows a list of all the stadiums in RFL',':rflstads'},3,{},function(player,args)
+		local list = {}
+
+		for _, league in next, services.ServerStorage["rfl stadiums"]:GetChildren() do
+			if league.Name == "ROTW" then
+				for _, subLeague in next, league:GetChildren() do
+					for _, stadium in next, subLeague:GetChildren() do
+						if stadium and stadium:IsA("Folder") then
+							table.insert(list, stadium.Name)
+						end
+					end
+				end
+			else
+				for _, stadium in next, league:GetChildren() do
+					if stadium and stadium:IsA("Folder") then
+						table.insert(list, stadium.Name)
+					end
+				end
+			end
+		end
+
+		KAIEvent:FireClient(player, "List", {"Stadiums", list})
+	end},
+
+	{{'teams'},{'Shows a list of all the teams',':teams'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		local list = {}
+
+		for _, league in next, references.Main.kits:GetChildren() do
+			if league.Name ~= "Event" and league.Name ~= "Template" then
+				for _, team in next, league:GetChildren() do
+					table.insert(list, team.Name)
+				end
+			end
+		end
+
+		KAIEvent:FireClient(player, "List", {"Teams", list})
+	end},
+
+	{{'stad','stadium'},{'Changes the stadium',':stad'},0,{'string'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 307485369 and player.UserId ~= 1908891988 then
+			return
+		end
+
+		local name = args[1]
+
+		references.Main.config.LeagueStadium.Value = ""
+
+		if name then
+			if string.lower(name) == "none" then
+				references.Main.config.Stadium.Value = "None"
+			else
+				for _, stadium in next, services.ServerStorage.stadiums:GetChildren() do
+					if stadium and string.lower(stadium.Name) == string.lower(name) then
+						references.Main.config.Stadium.Value = stadium.Name
+					end
+				end
+			end
+		end
+	end},
+
+	{{'rflstad','rflstadium'},{'Changes the league stadium',':stad'},3,{'string'},function(player,args)
+		local name = args[1]
+		local chantBaseHolder = game.ReplicatedStorage.game.sounds.RFL.ChantBase
+		local chantsHolder = game.ReplicatedStorage.game.sounds.RFL.Chants
+
+		references.Main.config.LeagueStadium.Value = ""
+
+		if name then
+			if string.lower(name) == "none" then
+				references.Main.config.LeagueStadium.Value = ""
+
+				stopAllSounds()
+			else
+				for _, league in next, services.ServerStorage["rfl stadiums"]:GetChildren() do
+					if league.Name == "ROTW" then
+						for _, subLeague in next, league:GetChildren() do
+							for _, stadium in next, subLeague:GetChildren() do
+								if stadium and stadium:IsA("Folder") and string.lower(stadium.Name) == string.lower(name) then
+									references.Main.config.LeagueStadium.Value = stadium.Name
+
+									stopAllSounds()
+
+									local chantBase = chantBaseHolder[stadium.Name]:FindFirstChildWhichIsA("Sound")
+
+									chantBase:Play()
+
+									local chantFolder = chantsHolder[stadium.Name]
+
+									while references.Main.config.LeagueStadium.Value == stadium.Name do
+										local rngChant = chantFolder:GetChildren()[math.random(1,#chantFolder:GetChildren())]
+
+										rngChant:Play()
+
+										rngChant.Ended:Wait()
+									end
+
+								end
+							end
+						end
+					else
+						for _, stadium in next, league:GetChildren() do
+							if stadium and stadium:IsA("Folder") and string.lower(stadium.Name) == string.lower(name) then
+								references.Main.config.LeagueStadium.Value = stadium.Name
+
+								stopAllSounds()
+
+								local chantBase = chantBaseHolder[stadium.Name]:FindFirstChildWhichIsA("Sound")
+
+								chantBase:Play()
+
+								local chantFolder = chantsHolder[stadium.Name]
+
+								while references.Main.config.LeagueStadium.Value == stadium.Name do
+									local rngChant = chantFolder:GetChildren()[math.random(1,#chantFolder:GetChildren())]
+
+									rngChant:Play()
+
+									rngChant.Ended:Wait()
+								end
+
+							end
+						end
+					end
+				end
+			end
+		end
+	end},
+
+	{{'walkout'},{'Plays walkout cutscene',':walkout'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+	end},
+
+	{{'stm'},{'Changes the players team',':stm'},3,{'player', 'string'},function(player,args)
+		if args[2] then
+			args[2] = string.lower(args[2])
+		end
+
+		if args[2] == "h" or args[2] == "home" then
+			for _, player in next, args[1] do
+				if player then
+					player.Team = game.Teams["Home"]
+				end
+			end
+		elseif args[2] == "hgk" or args[2] == "home gk" then
+			for _, player in next, args[1] do
+				if player then
+					player.Team = game.Teams["Home GK"]
+				end
+			end
+		elseif args[2] == "a" or args[2] == "away" then
+			for _, player in next, args[1] do
+				if player then
+					player.Team = game.Teams["Away"]
+				end
+			end
+		elseif args[2] == "agk" or args[2] == "away gk" then
+			for _, player in next, args[1] do
+				if player then
+					player.Team = game.Teams["Away GK"]
+				end
+			end
+		end
+	end},
+
+	{{'weather'},{'Changes the weather',':weather'},3,{'string'},function(player,args)
+		local name = args[1]
+
+		if name then
+			for _, weatherType in next, references.Main.weather:GetChildren() do
+				if weatherType and string.lower(weatherType.Name) == string.lower(name) then
+					references.Main.config.Weather.Value = weatherType.Name
+				end
+			end
+		end
+	end},
+
+	{{'intensity'},{'Changes the rain intensity',':intensity'},3,{'string'},function(player,args)
+		local name = args[1]
+
+		if name then
+			name = name:lower()
+
+			if name == "light" then
+				references.Main.config.Intensity.Value = "Light"
+			elseif name == "moderate" then
+				references.Main.config.Intensity.Value = "Moderate"
+			elseif name == "heavy" then
+				references.Main.config.Intensity.Value = "Heavy"
+			elseif name == "violent" then
+				references.Main.config.Intensity.Value = "Violent"
+			end
+		end
+	end},
+
+	{{'wind'},{'Changes the wind speed',':wind'},3,{'number'},function(player,args)
+		local speed = args[1]
+
+		if speed then
+			references.Main.config.Wind.Value = tostring(speed)
+		end
+	end},
+
+	{{'thunder'},{'Enables thunder',':thunder'},3,{},function(player,args)
+		references.Main.config.Thunder.Value = true
+	end},
+
+	{{'nothunder'},{'Disables thunder',':nothunder'},3,{},function(player,args)
+		references.Main.config.Thunder.Value = false
+	end},
+
+	{{'pattern'},{'Changes the field pattern',':pattern'},3,{'string'},function(player,args)
+		local name = args[1]
+
+		if name then
+			for _, fieldPattern in next, workspace.pitch.textures.Pattern:GetChildren() do
+				if fieldPattern and string.lower(fieldPattern.Name) == string.lower(name) then
+					references.Main.config["Field Pattern"].Value = fieldPattern.Name
+				end
+			end
+		end
+	end},
+
+	{{'settime'},{'Changes the time',':settime'},3,{'string'},function(player,args)
+		local name = args[1]
+
+		if string.lower(name) == "morning" then
+			references.Main.config.Time.Value = "Morning"
+		elseif string.lower(name) == "noon" then
+			references.Main.config.Time.Value = "Noon"
+		elseif string.lower(name) == "afternoon" then
+			references.Main.config.Time.Value = "Afternoon"
+		elseif string.lower(name) == "night" then
+			references.Main.config.Time.Value = "Night"
+		end
+	end},
+
+	{{'unk','unkit'},{"Removes the player's kit",':unkit'},0,{},function(player,args)
+		if _G._debug then
+			local appearanceModel = services.Players:GetCharacterAppearanceAsync(player.UserId)
+
+			if appearanceModel then
+				for _,v in next, player.Character:GetChildren() do
+					if v:IsA("Shirt") or v:IsA("Pants") then
+						v:Destroy()
+					end
+				end
+
+				for _,v in next, appearanceModel:GetChildren() do
+					if v:IsA("Shirt") or v:IsA("Pants") then
+						v.Parent = player.Character
+					end
+				end
+
+				appearanceModel:Destroy()
+			end
+		end
+	end},
+
+	{{'bib'},{"Gives the player a training bib",':bib'},0,{},function(player,args)
+		if _G._debug then
+			local bib = references.Main.storage["Training Bib"]:Clone()
+			bib.Parent = player.Character
+			bib.Weld.Part1 = player.Character.UpperTorso
+		end
+	end},
+
+	{{'playtrack'},{'Plays a track from the soundtrack',':playtrack'},0,{'string'},function(player,args)
+		if args[1] and tostring(args[1]) then
+			for _,v in next, references.Main.sounds.Soundtrack:GetChildren() do
+				if string.lower(v.Name) == string.lower(args[1]) then
+					references.RemoteEvent:FireClient(player, "playTrack", v)
+				end
+			end
+		end
+	end},
+
+	{{'sb'},{'Changes the scoreboard type',':sb RF'},3,{'string'},function(player,args)
+		if args[1] and tostring(args[1]) then
+			args[1] = tostring(args[1])
+
+			if string.lower(args[1]) == "rf" then
+				references.Main.config.Scoreboard.Value = "RF"
+			elseif string.lower(args[1]) == "epl" then
+				references.Main.config.Scoreboard.Value = "EPL"
+			elseif string.lower(args[1]) == "laliga" then
+				references.Main.config.Scoreboard.Value = "LaLiga"
+			elseif string.lower(args[1]) == "ucl" then
+				references.Main.config.Scoreboard.Value = "UCL"
+			elseif string.lower(args[1]) == "seriea" then
+				references.Main.config.Scoreboard.Value = "SerieA"
+			elseif string.lower(args[1]) == "ligue1" then
+				references.Main.config.Scoreboard.Value = "Ligue1"
+			elseif string.lower(args[1]) == "bundesliga" then
+				references.Main.config.Scoreboard.Value = "Bundesliga"
+			elseif string.lower(args[1]) == "aleague" then
+				references.Main.config.Scoreboard.Value = "ALeague"
+			elseif string.lower(args[1]) == "uel" then
+				references.Main.config.Scoreboard.Value = "UEL"
+			elseif string.lower(args[1]) == "uecl" then
+				references.Main.config.Scoreboard.Value = "UECL"
+			elseif string.lower(args[1]) == "wc" then
+				references.Main.config.Scoreboard.Value = "WC"
+			end
+		end
+	end},
+
+	{{'hteam'},{'Changes the team for home',':hteam HOME'},0,{'string'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 1908891988 then
+			return
+		end
+
+		if args[1] and tostring(args[1]) then
+			for _, league in next, references.Main.kits:GetChildren() do
+				for _, folder in next, league:GetChildren() do
+					if string.lower(folder.Name) == string.lower(args[1]) then
+						references.Main.config.Stats.Home.Team.Value = folder.Name
+					end
+				end
+			end
+		end
+	end},
+
+	{{'hkittype'},{'Changes the kit type for home',':hkittype HOME'},0,{'string'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 1908891988 then
+			return
+		end
+
+		if args[1] and tostring(args[1]) then
+			if string.lower(args[1]) == "home" then
+				references.Main.config.Stats.Home["Kit Type"].Value = "Home"
+			elseif string.lower(args[1]) == "away" then
+				references.Main.config.Stats.Home["Kit Type"].Value = "Away"
+			elseif string.lower(args[1]) == "third" then
+				references.Main.config.Stats.Home["Kit Type"].Value = "Third"
+			end
+		end
+	end},
+
+	{{'ateam'},{'Changes the team for away',':ateam AWAY'},0,{'string'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if args[1] and tostring(args[1]) then
+			for _, league in next, references.Main.kits:GetChildren() do
+				for _, folder in next, league:GetChildren() do
+					if string.lower(folder.Name) == string.lower(args[1]) then
+						references.Main.config.Stats.Away.Team.Value = folder.Name
+					end
+				end
+			end
+		end
+	end},
+
+	{{'akittype'},{'Changes the kit type for away',':akittype AWAY'},0,{'string'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		if args[1] and tostring(args[1]) then
+			if string.lower(args[1]) == "home" then
+				references.Main.config.Stats.Away["Kit Type"].Value = "Home"
+			elseif string.lower(args[1]) == "away" then
+				references.Main.config.Stats.Away["Kit Type"].Value = "Away"
+			elseif string.lower(args[1]) == "third" then
+				references.Main.config.Stats.Away["Kit Type"].Value = "Third"
+			end
+		end
+	end},
+
+	{{'alert'},{'Alerts a player.',':alert'},0,{'player'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		for _, v in pairs(args[1]) do
+			if v then
+				references.RemoteEvent:FireClient(v, "alert")
+			end
+		end
+	end},
+
+	{{'sbtime','sbt'},{'Sets the scoreboard time.',':sbtime 10 15'},0,{'number', 'number'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.Timer.Minutes.Value = args[1]
+		references.Main.config.Timer.Seconds.Value = args[2]
+	end},
+
+	{{'sbstart','sbst'},{'Starts the scoreboard timer.',':sbstart'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.NoTimer.Value = false
+
+		if not references.Main.config.Timer.Added.Enabled.Value then
+			references.Main.config.Timer.Enabled.Value = true
+		end
+
+		references.Main.config.Timer.Added.Paused.Value = false
+	end},
+
+	{{'sbpause','sbps'},{'Pauses the scoreboard timer.',':sbpause'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.Timer.Enabled.Value = false
+		references.Main.config.Timer.Added.Paused.Value = true
+	end},
+
+	{{'sbaddedtime','sbet'},{'Sets the scoreboard added time.',':sbet 2'},0,{'number'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.Timer.AddedTime.Value = args[1]
+	end},
+
+	{{'sbscore','sbsc'},{'Sets the scoreboard scores.',':sbscore 1 1'},0,{'number', 'number'},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		local homeScore = tonumber(args[1])
+		local awayScore = tonumber(args[2])
+
+		if references.Main and references.Main.config and references.Main.config:FindFirstChild("Stats") then
+			local stats = references.Main.config.Stats
+			if homeScore and stats:FindFirstChild("Home") and stats.Home:FindFirstChild("Score") then
+				stats.Home.Score.Value = homeScore
+			end
+			if awayScore and stats:FindFirstChild("Away") and stats.Away:FindFirstChild("Score") then
+				stats.Away.Score.Value = awayScore
+			end
+		end
+
+		if _G._references and _G._references.Main and _G._references.Main.scoreboard then
+			local sb = _G._references.Main.scoreboard
+			if homeScore then
+				if sb:FindFirstChild("HomeScore") then sb.HomeScore.Value = homeScore end
+				if sb:FindFirstChild("Home") then sb.Home.Value = homeScore end
+			end
+			if awayScore then
+				if sb:FindFirstChild("AwayScore") then sb.AwayScore.Value = awayScore end
+				if sb:FindFirstChild("Away") then sb.Away.Value = awayScore end
+			end
+		end
+	end},
+
+	{{'penalties','pens'},{'Enables the penalty scoreboard.',':penalties'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.Penalties.Enabled.Value = true
+	end},
+
+	{{'nopenalties','nopens'},{'Disables the penalty scoreboard.',':nopenalties'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.Penalties.Enabled.Value = false
+	end},
+
+	{{'sbreset','sbr'},{'Resets the scoreboard.',':sbreset'},0,{},function(player,args)
+		if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+			return
+		end
+
+		references.Main.config.Stats.Home.Team.Value = "HOME"
+		references.Main.config.Stats.Home.Score.Value = 0
+		references.Main.config.Stats.Away.Team.Value = "AWAY"
+		references.Main.config.Stats.Away.Score.Value = 0
+
+		references.Main.config.Stats.Home["Kit Type"].Value = "Home"
+		references.Main.config.Stats.Away["Kit Type"].Value = "Home"
+
+		references.Main.config.Timer.Enabled.Value = false
+		references.Main.config.Timer.Minutes.Value = 0
+		references.Main.config.Timer.Seconds.Value = 0
+
+		references.Main.config.Timer.Added.Enabled.Value = false
+		references.Main.config.Timer.Added.Paused.Value = false
+		references.Main.config.Timer.Added.Minutes.Value = 0
+		references.Main.config.Timer.Added.Seconds.Value = 0
+		references.Main.config.Timer.AddedTime.Value = 2
+
+		references.Main.config.Penalties.Enabled.Value = false
+
+		for _,v in next, references.Main.config.Penalties:GetDescendants() do
+			if v:IsA("StringValue") then
+				v.Value = "N"
+			end
+		end
+	end},
+}
+
+for _, position in next, references.Main.admin.positions:GetChildren() do
+	if position then
+		table.insert(commands, {{string.lower(position.Name)},{'Spawns a ball in the selected position.',':' .. string.lower(position.Name)},0,{},function(player,args)
+			if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+				return
+			end
+
+			for _,v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and (v.Name == "NoReact" or v.Name == "Goal") then
+					v:Destroy()
+				end
+			end
+
+			for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+				if v and (v.Name == "NoReact" or v.Name == "Goal") then
+					v:Destroy()
+				end
+			end
+
+			if references.Main.config.AutoRall.Value then
+				for _,v in next, workspace.game.balls.spawns:GetChildren() do
+					if v then
+						v:Destroy()
+					end
+				end
+			end
+
+			for _,v in next, workspace.game.balls.spawns:GetChildren() do
+				if v and v:FindFirstChild("possessor") and v.possessor.Value == player.UserId then
+					v:Destroy()
+				end
+			end
+
+			references.Main.config.NoBall.Value = false
+
+			local spawner = Instance.new("CFrameValue")
+			spawner.Name = "RF"
+			spawner.Value = position.CFrame
+			spawner.Parent = workspace.game.balls.spawns
+
+			local possessor = Instance.new("IntValue")
+			possessor.Name = "possessor"
+			possessor.Value = player.UserId
+			possessor.Parent = spawner
+
+			_G._references.Main.fans.Cheer.Value = false
+			_G._references.Main.config.Offside:ClearAllChildren()
+		end})
+	end
+end
+
+for _, folder in next, references.Main.config.Penalties:GetChildren() do
+	if folder:IsA("Folder") then
+		local prefix = "h"
+
+		if folder.Name == "Away" then
+			prefix = "a"
+		end
+
+		for _, order in next, folder:GetChildren() do
+			table.insert(commands, {{prefix .. "p" .. tostring(order.Name)},{"Changes the penalty scoreboard score.", ":"..prefix .. "pen" .. tostring(order.Name) .. " G/NG/N"},0,{'string'},function(player,args)
+				if player.UserId ~= game.PrivateServerOwnerId and player.UserId ~= 2731804921 and player.UserId ~= 423168665 and player.UserId ~= 848861090 then
+					return
+				end
+
+				if args[1] then
+					if string.upper(args[1]) == "G" or string.upper(args[1]) == "NG" or string.upper(args.Value) == "N" then
+						order.Value = string.upper(args[1])
+					end
+				end
+			end})
+		end
+	end
+end
+
+return commands
