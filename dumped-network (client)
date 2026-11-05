@@ -1,0 +1,86 @@
+-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw
+
+-- https://sitetest1.lua.expert
+
+local _references = _G._references
+local _services = _G._services
+local v1 = {}
+local RemoteEvent = _references.RemoteEvent
+local RemoteFunction = _references.RemoteFunction
+local FireServer = RemoteEvent.FireServer
+local InvokeServer = RemoteFunction.InvokeServer
+local v2 = 1
+local v3 = {}
+local v4 = {}
+local v5 = {}
+
+function v1.add(v6, v7, v8) -- line 17 | captures: v3, v4
+    v3[v7] = v8
+    if v4[v7] then
+        local v9 = #v4[v7]
+        for v10 = 1, v9 do
+            local v11 = v4[v7][v10]
+            v8(unpack(v11))
+        end
+    end
+end
+
+local function getkey() -- line 26 | captures: v2
+    v2 = 1000
+    return v2
+end
+
+function v1.send(v12, ...) -- line 31 | captures: v2, RemoteEvent, FireServer
+    v2 = 1000
+    FireServer(RemoteEvent, v2, ...)
+end
+
+function v1.fetch(v13, ...) -- line 35 | captures: v2, RemoteFunction, InvokeServer
+    v2 = 1000
+    return InvokeServer(RemoteFunction, v2, ...)
+end
+
+local function call(v14, ...) -- line 39 | captures: v3, v4
+    if v3[v14] then
+        return v3[v14](...)
+    end
+    if not v4[v14] then
+        v4[v14] = {}
+    end
+    v4[v14][#v4[v14] + 1] = { ... }
+end
+
+RemoteEvent.OnClientEvent:Connect(call)
+
+function RemoteFunction.OnClientInvoke(v15, ...) -- line 52 | captures: v3
+    if v3[v15] then
+        return v3[v15](...)
+    end
+end
+
+local function doEves() -- line 58 | captures: _references, _services, RemoteEvent, RemoteFunction, v5
+    for v16 = 1, 10 do
+        local v17
+        if math.random(1, 2) == 1 then
+            v17 = Instance.new("RemoteEvent")
+        else
+            v17 = Instance.new("RemoteFunction")
+        end
+        v17.Name = _services.HttpService:GenerateGUID()
+        v17.Parent = _references.Network.Shared
+        table.insert(v5, v17)
+    end
+    coroutine.wrap(function() -- line 74 | captures: _services, RemoteEvent, RemoteFunction, v5
+        while true do
+            task.wait(10)
+            for v18, v19 in next, v5 do
+                v19.Name = _services.HttpService:GenerateGUID()
+            end
+            RemoteFunction.Name = _services.HttpService:GenerateGUID()
+            RemoteEvent.Name = _services.HttpService:GenerateGUID()
+        end
+    end)()
+end
+
+doEves()
+return v1
