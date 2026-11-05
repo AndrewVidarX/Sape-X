@@ -1,0 +1,405 @@
+local Players = game:GetService("Players")
+local Teams = game:GetService("Teams")
+local DataStoreService = game:GetService("DataStoreService")
+
+local BanStore = DataStoreService:GetDataStore("PFL_AdminBans_V1")
+
+local OWNER_ID = 11180564601
+local PREFIX = ":"
+
+local serverLocked = false
+local temporaryAdminId = nil
+local level2Admins = {
+	[OWNER_ID] = true
+}
+
+local function getLevel(player)
+	if player.UserId == OWNER_ID or level2Admins[player.UserId] then
+		return 2
+	elseif player.UserId == temporaryAdminId then
+		return 1
+	end
+	return 0
+end
+
+local function findPlayer(name)
+	name = string.lower(name or "")
+
+	if name == "" then
+		return nil
+	end
+
+	for _, target in ipairs(Players:GetPlayers()) do
+		if string.lower(target.Name) == name
+			or string.lower(target.DisplayName) == name then
+			return target
+		end
+	end
+
+	for _, target in ipairs(Players:GetPlayers()) do
+		if string.sub(string.lower(target.Name), 1, #name) == name
+			or string.sub(string.lower(target.DisplayName), 1, #name) == name then
+			return target
+		end
+	end
+
+	return nil
+end
+
+local function getTargets(selector, executor)
+	selector = string.lower(selector or "")
+
+	if selector == "me" then
+		return {executor}
+	elseif selector == "all" then
+		return Players:GetPlayers()
+	elseif selector == "others" then
+		local result = {}
+		for _, target in ipairs(Players:GetPlayers()) do
+			if target ~= executor then
+				table.insert(result, target)
+			end
+		end
+		return result
+	elseif selector == "random" then
+		local available = Players:GetPlayers()
+		if #available > 0 then
+			return {available[math.random(1, #available)]}
+		end
+	end
+
+	local target = findPlayer(selector)
+	return target and {target} or {}
+end
+
+local function isBanned(userId)
+	local success, result = pcall(function()
+		return BanStore:GetAsync(tostring(userId))
+	end)
+
+	if not success then
+		warn("PFL ban lookup failed:", result)
+		return nil
+	end
+
+	return result == true
+end
+
+-- Helper function to clear balls, overrides, and delays (:rall logic)
+local function rallBalls()
+	if _G._references and _G._references.Main and _G._references.Main.config then
+		if _G._references.Main.config:FindFirstChild("Override") then
+			for _, v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and (v.Name == "NoReact" or v.Name == "Goal") then
+					v:Destroy()
+				end
+			end
+		end
+
+		if _G._references.Main.config:FindFirstChild("Delay") then
+			for _, v in next, _G._references.Main.config.Delay:GetChildren() do
+				if v and (v.Name == "NoReact" or v.Name == "Goal") then
+					v:Destroy()
+				end
+			end
+		end
+
+		if _G._references.Main.config:FindFirstChild("NoBall") then
+			_G._references.Main.config.NoBall.Value = false
+		end
+
+		if _G._references.Main.fans and _G._references.Main.fans:FindFirstChild("Cheer") then
+			_G._references.Main.fans.Cheer.Value = false
+		end
+
+		if _G._references.Main.config:FindFirstChild("Offside") then
+			_G._references.Main.config.Offside:ClearAllChildren()
+		end
+	end
+
+	if workspace:FindFirstChild("game") and workspace.game:FindFirstChild("balls") and workspace.game.balls:FindFirstChild("spawns") then
+		for _, v in next, workspace.game.balls.spawns:GetChildren() do
+			if v then
+				v:Destroy()
+			end
+		end
+	end
+end
+
+Players.PlayerAdded:Connect(function(player)
+	-- The owner always has Level 2
+	if player.UserId == OWNER_ID then
+		level2Admins[player.UserId] = true
+	end
+
+	-- First player gets temporary Level 1
+	if temporaryAdminId == nil and player.UserId ~= OWNER_ID then
+		temporaryAdminId = player.UserId
+	end
+
+	-- Persistent ban check
+	local banned = isBanned(player.UserId)
+
+	if banned == nil then
+		player:Kick("Unable to verify your ban status. Please rejoin.")
+		return
+	elseif banned then
+		player:Kick("You are banned from PFL.")
+		return
+	end
+
+	-- Server lock
+	if serverLocked and player.UserId ~= OWNER_ID then
+		player:Kick("This PFL server is locked.")
+		return
+	end
+
+	player.Chatted:Connect(function(message)
+		if string.sub(message, 1, #PREFIX) ~= PREFIX then
+			return
+		end
+
+		local args = string.split(string.sub(message, #PREFIX + 1), " ")
+		local command = string.lower(args[1] or "")
+		local level = getLevel(player)
+
+		if command == "lock" and level >= 1 then
+			serverLocked = true
+			print("PFL server locked by " .. player.Name)
+			
+		elseif (command == "btp" or command == "ballteleport") and level >= 1 then
+			local ball = workspace:FindFirstChild("Ball", true)
+
+			if ball then
+				local character = player.Character
+				local root = character and character:FindFirstChild("HumanoidRootPart")
+
+				if root then
+					local ballPart
+
+					if ball:IsA("BasePart") then
+						ballPart = ball
+					elseif ball:IsA("Model") then
+						ballPart = ball.PrimaryPart or ball:FindFirstChildWhichIsA("BasePart", true)
+					end
+
+					if ballPart then
+						root.CFrame = ballPart.CFrame + Vector3.new(0, 4, 0)
+					end
+				end
+			end
+			
+		elseif command == "unlock" and level >= 1 then
+			serverLocked = false
+			print("PFL server unlocked by " .. player.Name)
+
+		elseif command == "kick" and level >= 1 then
+			for _, target in ipairs(getTargets(args[2], player)) do
+				if target.UserId ~= OWNER_ID or player.UserId == OWNER_ID then
+					target:Kick("Kicked by PFL Admin.")
+				end
+			end
+
+		elseif command == "stm" and level >= 1 then
+			local selector = args[2]
+			local teamShortcut = string.lower(table.concat(args, " ", 3))
+
+			local teamNames = {
+				r = "Referee",
+				referee = "Referee",
+				h = "Home",
+				home = "Home",
+				a = "Away",
+				away = "Away",
+				f = "Fans",
+				hs = "-Home Subs",
+				m = "Media",
+				media = "Media",
+				as = "-Away Subs",
+				hgk = "-Home GK",
+				["home gk"] = "-Home GK",
+				agk = "-Away GK",
+				["away gk"] = "-Away GK"
+			}
+
+			local selectedTeam = Teams:FindFirstChild(teamNames[teamShortcut] or "")
+
+			if selectedTeam then
+				for _, target in ipairs(getTargets(selector, player)) do
+					if target.UserId ~= OWNER_ID or player.UserId == OWNER_ID then
+						target.Team = selectedTeam
+						target.Neutral = false
+						target:LoadCharacter()
+					end
+				end
+			end
+
+			-- ==================== NEW BALL & AUTO COMMANDS ====================
+
+		elseif command == "pb" or command == "publicball" then
+			local mainConfig = _G._references and _G._references.Main and _G._references.Main.config
+			local publicBallEnabled = mainConfig and mainConfig:FindFirstChild("PublicBall") and mainConfig.PublicBall.Value or false
+			local autoSystemEnabled = mainConfig and mainConfig:FindFirstChild("AutoSystem") and mainConfig.AutoSystem.Value or false
+
+			if publicBallEnabled and not autoSystemEnabled then
+				if mainConfig:FindFirstChild("Override") then
+					for _, v in next, mainConfig.Override:GetChildren() do
+						if v and (v.Name == "NoReact" or v.Name == "Goal") then
+							v:Destroy()
+						end
+					end
+				end
+
+				if mainConfig:FindFirstChild("Delay") then
+					for _, v in next, mainConfig.Delay:GetChildren() do
+						if v and (v.Name == "NoReact" or v.Name == "Goal") then
+							v:Destroy()
+						end
+					end
+				end
+
+				-- Remove only this player's existing public ball without affecting others
+				if workspace:FindFirstChild("game") and workspace.game:FindFirstChild("balls") and workspace.game.balls:FindFirstChild("spawns") then
+					for _, v in next, workspace.game.balls.spawns:GetChildren() do
+						if v and v:FindFirstChild("possessor") and v.possessor.Value == player.UserId then
+							v:Destroy()
+						end
+					end
+				end
+
+				if mainConfig:FindFirstChild("NoBall") then
+					mainConfig.NoBall.Value = false
+				end
+				if _G._references.Main.fans and _G._references.Main.fans:FindFirstChild("Cheer") then
+					_G._references.Main.fans.Cheer.Value = false
+				end
+				if mainConfig:FindFirstChild("Offside") then
+					mainConfig.Offside:ClearAllChildren()
+				end
+
+				if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+					local spawner = Instance.new("CFrameValue")
+					spawner.Name = "RF"
+					spawner.Value = player.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -2.5)
+					if workspace:FindFirstChild("game") and workspace.game:FindFirstChild("balls") and workspace.game.balls:FindFirstChild("spawns") then
+						spawner.Parent = workspace.game.balls.spawns
+					end
+
+					local possessor = Instance.new("IntValue")
+					possessor.Name = "possessor"
+					possessor.Value = player.UserId
+					possessor.Parent = spawner
+				end
+			end
+
+		elseif (command == "b" or command == "ball") and level >= 1 then
+			rallBalls()
+			local target = args[2] and getTargets(args[2], player)[1] or player
+			if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+				local spawner = Instance.new("CFrameValue")
+				spawner.Name = "RF"
+				spawner.Value = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -2.5)
+				if workspace:FindFirstChild("game") and workspace.game:FindFirstChild("balls") and workspace.game.balls:FindFirstChild("spawns") then
+					spawner.Parent = workspace.game.balls.spawns
+				end
+
+				local possessor = Instance.new("IntValue")
+				possessor.Name = "possessor"
+				possessor.Value = target.UserId
+				possessor.Parent = spawner
+			end
+
+		elseif command == "rall" and level >= 1 then
+			rallBalls()
+
+		elseif command == "pbon" and level >= 1 then
+			local mainConfig = _G._references and _G._references.Main and _G._references.Main.config
+			if mainConfig and mainConfig:FindFirstChild("PublicBall") then
+				mainConfig.PublicBall.Value = true
+			end
+
+		elseif command == "pboff" and level >= 1 then
+			local mainConfig = _G._references and _G._references.Main and _G._references.Main.config
+			if mainConfig and mainConfig:FindFirstChild("PublicBall") then
+				mainConfig.PublicBall.Value = false
+			end
+
+		elseif command == "auto" and level >= 1 then
+			local mainConfig = _G._references and _G._references.Main and _G._references.Main.config
+			if mainConfig and mainConfig:FindFirstChild("AutoSystem") then
+				mainConfig.AutoSystem.Value = true
+			end
+
+		elseif command == "noauto" and level >= 1 then
+			local mainConfig = _G._references and _G._references.Main and _G._references.Main.config
+			if mainConfig then
+				if mainConfig:FindFirstChild("AutoSystem") then mainConfig.AutoSystem.Value = false end
+				if mainConfig:FindFirstChild("NoBall") then mainConfig.NoBall.Value = false end
+				if mainConfig:FindFirstChild("NoTimer") then mainConfig.NoTimer.Value = false end
+			end
+
+			-- ===================================================================
+
+		elseif command == "ban" and level >= 2 then
+			for _, target in ipairs(getTargets(args[2], player)) do
+				if target.UserId ~= OWNER_ID then
+					local success, err = pcall(function()
+						BanStore:SetAsync(tostring(target.UserId), true)
+					end)
+
+					if success then
+						target:Kick("You have been banned from PFL.")
+					else
+						warn("Ban failed:", err)
+					end
+				end
+			end
+
+		elseif command == "unban" and level >= 2 then
+			local username = args[2]
+			if username then
+				local success, err = pcall(function()
+					local userId = Players:GetUserIdFromNameAsync(username)
+					BanStore:RemoveAsync(tostring(userId))
+				end)
+
+				if not success then
+					warn("Unban failed:", err)
+				end
+			end
+
+		elseif command == "admin" and level >= 2 then
+			local target = findPlayer(args[2])
+			if target then
+				level2Admins[target.UserId] = true
+				print(target.Name .. " promoted to Level 2.")
+			end
+
+		elseif command == "unadmin" and level >= 2 then
+			local target = findPlayer(args[2])
+			if target and target.UserId ~= OWNER_ID then
+				level2Admins[target.UserId] = nil
+				print(target.Name .. " removed from Level 2.")
+			end
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+	if player.UserId == temporaryAdminId then
+		temporaryAdminId = nil
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= player and p.UserId ~= OWNER_ID then
+				temporaryAdminId = p.UserId
+				break
+			end
+		end
+	end
+end)
+
+-- Check players already in the server
+for _, player in ipairs(Players:GetPlayers()) do
+	if player.UserId ~= OWNER_ID and temporaryAdminId == nil then
+		temporaryAdminId = player.UserId
+	end
+end
