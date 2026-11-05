@@ -1,0 +1,12 @@
+-- Saved by UniversalSynSaveInstance (Join to Copy Games) https://discord.gg/wx4ThpAsmw
+
+-- https://sitetest1.lua.expert
+
+return {
+    new = function() -- new | line 6
+        if _G._services.RunService:IsClient() then
+            return require(script:WaitForChild("client"))
+        end
+        return not _G._services.RunService:IsServer() and {} or require(script:WaitForChild("server"))
+    end
+}
