@@ -1,0 +1,925 @@
+--[[  Services  ]]------------------------------------------------------------------
+
+local engine = _G._engine
+
+local maid = engine:load("Maid").new()
+local iconController = engine:load("Icon")
+local coreGui = engine:load("CoreMethods", "utils")
+local bulkFade = engine:load("BulkFade", "utils")
+local teamService = engine:load("TeamService", "utils")
+local formatNumber = engine:load("FormatNumber", "utils")
+local thumbnailService = engine:load("ThumbnailService", "utils")
+
+local references = engine.References
+local services = engine.Services
+
+local localPlayer = services.Players.LocalPlayer
+local mouse = localPlayer:GetMouse()
+local playerGui = references.PlayerGui
+local profile = references.Profile
+
+local controllers = script.Parent.Parent:WaitForChild("controllers", 100)
+local movementController = controllers:WaitForChild("movementController", 100)
+local firstPersonController = controllers:WaitForChild("firstPersonController", 100)
+local themes = require(references.Classes.Icon:WaitForChild("Themes", 100))
+
+local currentCamera = workspace.CurrentCamera
+local cameraLimit = math.rad(30)
+local divider = 20
+
+local start = tick()
+
+while not profile:GetAttribute("Loaded") and tick() - start <= 2 do
+	task.wait()
+end
+
+local cashTween = Instance.new("IntValue")
+cashTween.Value = profile.stats.Cash.Value
+
+local cashHolder = Instance.new("IntValue")
+cashHolder.Value = profile.stats.Cash.Value
+
+local lerpValuePlay = Instance.new("NumberValue")
+lerpValuePlay.Name = "lerpPlay"
+lerpValuePlay.Parent = script
+lerpValuePlay.Value = 0
+
+local lerpValueCustomize = Instance.new("NumberValue")
+lerpValueCustomize.Name = "lerpCustomize"
+lerpValueCustomize.Parent = script
+lerpValueCustomize.Value = 0
+
+local main = playerGui:WaitForChild("main", 100)
+local menu = playerGui:WaitForChild("menu", 100)
+local UserInputService = game:GetService("UserInputService")
+
+local menuMain = menu:WaitForChild("menu"):WaitForChild("main")
+local menuScale = menuMain:WaitForChild("UIScale")
+
+local function updateMenuScale()
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+
+	if UserInputService.TouchEnabled then
+		local viewport = camera.ViewportSize
+
+		local widthScale = viewport.X / 1366
+		local heightScale = viewport.Y / 768
+
+		menuScale.Scale = math.clamp(
+			math.min(widthScale, heightScale) * 0.9,
+			0.4,
+			0.9
+		)
+	else
+		menuScale.Scale = 1
+	end
+end
+
+local function connectCamera()
+	local camera = workspace.CurrentCamera
+	if camera then
+		camera:GetPropertyChangedSignal("ViewportSize"):Connect(updateMenuScale)
+	end
+	updateMenuScale()
+end
+
+workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(connectCamera)
+
+connectCamera()
+local buttons = main:WaitForChild("buttons", 100)
+local menuButton = buttons:WaitForChild("menu", 100)
+
+--[[  Body  ]]------------------------------------------------------------------
+
+local config = {
+	current = "home",
+	inputInProcess = false,
+	index = {
+		home = 1,
+		kickoff = 2,
+		servers = 3,
+		customize = 4,
+		store = 5,
+	},
+	navigation = {
+		container = "none",
+		current = "none",
+		horizontal = "left",
+		vertical = 1,
+		debounce = false
+	},
+	tabs = {
+		debounce = false
+	},
+	bulkFadeGroups = {},
+	pages = {},
+	cache = {}
+}
+
+function config:updateCash()
+	cashHolder.Value = cashTween.Value
+	menu.menu.main.profile.cash.cash.Text = tostring(formatNumber.FormatLong(cashTween.Value))
+end
+
+function config:updateProfile()
+	menu.menu.main.profile.main.display.Text = localPlayer.DisplayName
+	menu.menu.main.profile.main.user.Text = localPlayer.Name
+	menu.menu.main.profile.main.avatar.Image = thumbnailService:get(localPlayer.UserId)
+	menu.menu.main.profile.cash.cash.Text = tostring(formatNumber.FormatLong(cashTween.Value))
+
+	menu.menu.main.profile.level.level.level.Text = tostring(profile.level.Level.Value)
+	menu.menu.main.profile.level.progress.xp.Text = string.format("<b>%s XP</b>/%s XP", tostring(formatNumber.FormatLong(profile.level.XP.Value)), tostring(formatNumber.FormatLong(profile.level.XPNeeded.Value)))
+	menu.menu.main.profile.level.progress.bar.bar:TweenSize(UDim2.new((profile.level.XP.Value - profile.level.PreviousXPNeeded.Value) / (profile.level.XPNeeded.Value - profile.level.PreviousXPNeeded.Value), 0, 1, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Sine, 0.2, true)
+end
+
+function config:hover(frame)
+	if script:GetAttribute("freeze") then
+		return
+	end
+
+	for _, container in next, menu.menu.main.tabs:GetChildren() do
+		if container and container:IsA("Frame") then
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("main") and newFrame.main:FindFirstChild("button") and newFrame ~= frame then
+					if newFrame.main:FindFirstChild("icon") then
+						services.TweenService:Create(newFrame.main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+					end
+
+					services.TweenService:Create(newFrame.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+					services.TweenService:Create(newFrame.main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+					services.TweenService:Create(newFrame.main.label, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+					services.TweenService:Create(newFrame.main.description, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+					services.TweenService:Create(newFrame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
+					services.TweenService:Create(newFrame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 10)}):Play()
+					services.TweenService:Create(newFrame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+					services.TweenService:Create(newFrame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 60)}):Play()
+					services.TweenService:Create(newFrame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, -0)}):Play()
+				end
+			end
+		end
+	end
+
+	references.Main.sounds.UI.Hover:Play()
+	services.TweenService:Create(frame.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+	services.TweenService:Create(frame.main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0.3}):Play()
+	services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1.03}):Play()
+
+	if frame.main:FindFirstChild("icon") then
+		services.TweenService:Create(frame.main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+	end
+
+	if frame.main.label.TextXAlignment == Enum.TextXAlignment.Left then
+		services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 18, 0, 7)}):Play()
+		services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, -3, 0, 3)}):Play()
+		services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 18, 0, 57)}):Play()
+		services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, -3, 0, 3)}):Play()
+	elseif frame.main.label.TextXAlignment == Enum.TextXAlignment.Right then
+		services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 12, 0, 7)}):Play()
+		services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 3, 0, 3)}):Play()
+		services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 12, 0, 57)}):Play()
+		services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 3, 0, 3)}):Play()
+	end
+end
+
+function config:update(container, frame)
+	self.navigation.container = container.Name
+	self.navigation.current = frame.Name
+	self.navigation.horizontal = frame.alignment.horizontal.Value
+	self.navigation.vertical = frame.alignment.vertical.Value
+end
+
+function config:move(direction)
+	if direction == "right" and self.navigation.container and self.navigation.current then
+		local container = menu.menu.main.tabs[self.navigation.container]
+		local frame = container[self.navigation.current]
+		local alignment = frame.alignment
+		local nextFrameFound = false
+
+		if alignment.horizontal.Value == "left" then
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical and newFrame.alignment.horizontal.Value == "right" and not nextFrameFound then
+					nextFrameFound = true
+					self:update(container, newFrame)
+					self:hover(newFrame)
+					break
+				end
+			end
+		end
+	elseif direction == "left" and self.navigation.container and self.navigation.current then
+		local container = menu.menu.main.tabs[self.navigation.container]
+		local frame = container[self.navigation.current]
+		local alignment = frame.alignment
+		local nextFrameFound = false
+
+		if alignment.horizontal.Value == "right" then
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical and newFrame.alignment.horizontal.Value == "left" and not nextFrameFound then
+					nextFrameFound = true
+					self:update(container, newFrame)
+					self:hover(newFrame)
+					break
+				end
+			end
+
+			if not nextFrameFound then
+				for _, newFrame in next, container:GetChildren() do
+					if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == 1 and newFrame.alignment.horizontal.Value == "left" and not nextFrameFound then
+						nextFrameFound = true
+						self:update(container, newFrame)
+						self:hover(newFrame)
+						break
+					end
+				end
+			end
+		end
+	elseif direction == "up" and self.navigation.container and self.navigation.current then
+		local container = menu.menu.main.tabs[self.navigation.container]
+		local frame = container[self.navigation.current]
+		local alignment = frame.alignment
+		local nextFrameFound = false
+
+		if alignment.horizontal.Value == "middle" then
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical - 1 and newFrame.alignment.horizontal.Value == "left" and not nextFrameFound then
+					nextFrameFound = true
+					self:update(container, newFrame)
+					self:hover(newFrame)
+					break
+				end
+			end
+		else
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical - 1 and newFrame.alignment.horizontal.Value == alignment.horizontal.Value and not nextFrameFound then
+					nextFrameFound = true
+					self:update(container, newFrame)
+					self:hover(newFrame)
+					break
+				end
+			end
+
+			if not nextFrameFound then
+				for _, newFrame in next, container:GetChildren() do
+					if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical - 1 and newFrame.alignment.horizontal.Value == "middle" and not nextFrameFound then
+						nextFrameFound = true
+						self:update(container, newFrame)
+						self:hover(newFrame)
+						break
+					end
+				end
+			end
+		end
+	elseif direction == "down" and self.navigation.container and self.navigation.current then
+		local container = menu.menu.main.tabs[self.navigation.container]
+		local frame = container[self.navigation.current]
+		local alignment = frame.alignment
+		local nextFrameFound = false
+
+		if alignment.horizontal.Value == "middle" then
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical + 1 and newFrame.alignment.horizontal.Value == "left" and not nextFrameFound then
+					nextFrameFound = true
+					self:update(container, newFrame)
+					self:hover(newFrame)
+					break
+				end
+			end
+		else
+			for _, newFrame in next, container:GetChildren() do
+				if newFrame and newFrame:IsA("Frame") and newFrame:FindFirstChild("alignment") and newFrame.alignment.vertical.Value == self.navigation.vertical + 1 and newFrame.alignment.horizontal.Value == alignment.horizontal.Value and not nextFrameFound then
+					nextFrameFound = true
+					self:update(container, newFrame)
+					self:hover(newFrame)
+					break
+				end
+			end
+		end
+	end
+end
+
+function config:select(frame)
+	if not self.cache["buttonDebounce"] and self.current ~= frame.Name then
+		self.cache["buttonDebounce"] = true
+
+		if self.bulkFadeGroups[self.current] then
+			self.bulkFadeGroups[self.current]:FadeOut()
+		end
+
+		self.current = frame.Name
+		menu.menu.main.tabs.UIPageLayout:JumpTo(menu.menu.main.tabs[frame.Name])
+
+		task.wait(0.1)
+
+		if self.bulkFadeGroups[frame.Name] then
+			self.bulkFadeGroups[frame.Name]:FadeIn()
+		end
+
+		if services.UserInputService.GamepadEnabled then
+			for _,v in next, menu.menu.main.tabs[frame.Name]:GetChildren() do
+				if v and v:IsA("Frame") and v.LayoutOrder == 1 and v:FindFirstChild("alignment") then
+					self.navigation.container = frame.Name
+					self.navigation.current = v.Name
+					self.navigation.horizontal = v.alignment.horizontal.Value
+					self.navigation.vertical = v.alignment.vertical.Value
+					self:hover(v)
+				end
+			end
+		end
+
+		self.cache["buttonDebounce"] = nil
+	end
+end
+
+function config:init()
+	--[[  Appearance  ]]-------------------------------------------------
+
+	local rig = references.Main.rigs.Character:Clone()
+
+	local success, appearanceModel = pcall(function()
+		return _G._services.Players:GetCharacterAppearanceAsync(localPlayer.UserId)
+	end)
+
+	if success and appearanceModel then
+		for _,v in next, appearanceModel:GetChildren() do
+			if v:IsA("Accessory") and not v:FindFirstChildWhichIsA("WrapLayer", true) and not v:FindFirstChild("BodyBackAttachment", true) and not v:FindFirstChild("WaistBackAttachment", true) then
+				v.Parent = rig
+			elseif v:IsA("BodyColors") then
+				rig["Body Colors"]:Destroy()
+				v.Parent = rig
+			elseif v:IsA("Decal") and v.Name == "face" then
+				rig.Head.face.Texture = v.Texture
+			end
+		end
+	end
+
+	if references.Main.boots:FindFirstChild(references.Profile.inventory.Current.Boots.Value) then
+		rig.RightBoot.TextureID = references.Main.boots[references.Profile.inventory.Current.Boots.Value].TextureID
+		rig.LeftBoot.TextureID = references.Main.boots[references.Profile.inventory.Current.Boots.Value].TextureID
+	end
+
+	menu.menu.Visible = true
+	rig.Parent = workspace.game.menu
+	rig:SetPrimaryPartCFrame(workspace.game.menu.character.menu.CFrame)
+	coreGui:SetCoreGui("SetCoreGuiEnabled", "Chat", false)
+
+	local mesh = references.Main.balls["Adidas RF Pro 23/24"]:Clone()
+	mesh.Parent = rig.Ball.design
+	mesh.Size = rig.Ball.Size
+	mesh.CFrame = rig.Ball.CFrame
+	rig.Ball.Transparency = 1
+
+	local weld = Instance.new("WeldConstraint", mesh)
+	weld.Part0 = mesh
+	weld.Part1 = rig.Ball
+
+	local idle = rig.Humanoid.Animator:LoadAnimation(references.Main.animations.Player.Menu)
+	idle:Play()
+
+	--[[  Kits  ]]-------------------------------------------------
+
+	local function loadKit(kits)
+		if kits:FindFirstChildWhichIsA("Shirt") then
+			for _,v in next, rig:GetChildren() do
+				if v:IsA("Shirt") or v:IsA("Pants") then
+					v:Destroy()
+				end
+			end
+
+			if rig:FindFirstChild("LayeredShirt") then
+				rig.LayeredShirt.Handle.Transparency = 1
+				rig.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = false
+			end
+
+			if rig:FindFirstChild("LayeredPants") then
+				rig.LayeredPants.Handle.Transparency = 1
+				rig.LayeredPants.Handle.AccessoryWrapLayer.Enabled = false
+			end
+
+			if string.find(localPlayer.Team.Name, "GK") and kits:FindFirstChild("GK Shirt") and kits:FindFirstChild("GK Pants") then
+				kits["GK Shirt"]:Clone().Parent = rig
+				kits["GK Pants"]:Clone().Parent = rig
+			else
+				kits.Shirt:Clone().Parent = rig
+				kits.Pants:Clone().Parent = rig
+			end
+		else
+			for _,v in next, rig:GetChildren() do
+				if v:IsA("Shirt") or v:IsA("Pants") then
+					v:Destroy()
+				end
+			end
+
+			references.Main.storage.ClassicShirt:Clone().Parent = rig
+			references.Main.storage.ClassicPants:Clone().Parent = rig
+			rig.ClassicPants.Color3 = kits.PantsColour.Value
+
+			if rig:FindFirstChild("LayeredShirt") then
+				rig.LayeredShirt.Handle.Transparency = 0
+				rig.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = true
+			end
+
+			if string.find(localPlayer.Team.Name, "GK") and kits:FindFirstChild("GK Shirt") then
+				if rig.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance") then
+					rig.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance"):Destroy()
+					kits["GK Shirt"]:Clone().Parent = rig.LayeredShirt.Handle
+				end
+			else
+				if rig.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance") then
+					rig.LayeredShirt.Handle:FindFirstChildWhichIsA("SurfaceAppearance"):Destroy()
+					kits.Shirt:Clone().Parent = rig.LayeredShirt.Handle
+				end
+			end
+		end
+	end
+
+	local function updateKit()
+		if string.find(localPlayer.Team.Name, "Home") then
+			local kits = teamService:getKitFromTeam("Home")
+			loadKit(kits)
+		elseif string.find(localPlayer.Team.Name, "Away") then
+			local kits = teamService:getKitFromTeam("Away")
+			loadKit(kits)
+		else
+			for _,v in next, rig:GetChildren() do
+				if v:IsA("Shirt") or v:IsA("Pants") then
+					v:Destroy()
+				end
+			end
+
+			rig.LayeredShirt.Handle.Transparency = 1
+			rig.LayeredShirt.Handle.AccessoryWrapLayer.Enabled = false
+
+			services.StarterPlayer.StarterCharacter.ClassicShirt:Clone().Parent = rig
+			services.StarterPlayer.StarterCharacter.ClassicPants:Clone().Parent = rig
+		end
+	end
+
+	localPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+		updateKit()
+	end)
+
+	for _, reference in next, {"Home", "Away"} do
+		references.Main.config.Stats[reference].Team.Changed:Connect(updateKit)
+		references.Main.config.Stats[reference]["Kit Type"].Changed:Connect(updateKit)
+	end
+
+	--[[  Bulk Fade  ]]-------------------------------------------------
+
+	for _, frame in next, menu.menu.main.tabs:GetChildren() do
+		if frame and frame:IsA("Frame") then
+			self.bulkFadeGroups[frame.Name] = bulkFade.CreateGroup(frame:GetDescendants(), TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out))
+
+			if frame.Name ~= self.current then
+				self.bulkFadeGroups[frame.Name]:FadeOut()
+			end
+		end
+	end
+
+	--[[  Toggle  ]]-------------------------------------------------
+
+	local function toggleMenu()
+		if not menu.Enabled then
+			references.Main.sounds.UI.Click:Play()
+
+			menu.Enabled = true
+			menu.gradient:TweenPosition(UDim2.new(0, 0, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quint, 0.5, true)
+
+			task.wait(0.5)
+
+			movementController:SetAttribute("forceStop", true)
+			movementController:SetAttribute("canSprint", false)
+			coreGui:SetCoreGui("SetCoreGuiEnabled", "Chat", false)
+
+			main.Enabled = false
+			menu.menu.Visible = true
+
+			lerpValuePlay.Value = 0
+			lerpValueCustomize.Value = 0
+
+			rig.Parent = workspace.game.menu
+			rig:SetPrimaryPartCFrame(workspace.game.menu.character.menu.CFrame)
+			idle:Play(0)
+
+			task.delay(0.1, function()
+				for _, track in next, workspace.game.menu.Character.Humanoid.Animator:GetPlayingAnimationTracks() do
+					if track and track ~= idle then
+						track:Stop(0)
+					end
+				end
+			end)
+
+			script:SetAttribute("freeze", false)
+			script:SetAttribute("enabled", true)
+
+			currentCamera.FieldOfView = 30
+
+			services.Lighting.DepthOfField.Enabled = true
+			services.Lighting.DepthOfField.FarIntensity = 1
+			services.Lighting.DepthOfField.FocusDistance = 0
+			services.Lighting.DepthOfField.InFocusRadius = 50
+			services.Lighting.DepthOfField.NearIntensity = 0
+
+			task.wait(0.3)
+
+			references.Main.sounds.Player.Woosh:Play()
+			menu.gradient:TweenPosition(UDim2.new(1, 700, 0, 0), Enum.EasingDirection.InOut, Enum.EasingStyle.Quint, 0.5, true)
+
+			task.wait(0.5)
+
+			currentCamera.FieldOfView = 30
+			menu.gradient.Position = UDim2.new(-1, -700, 0, 0)
+		end
+	end
+
+	--[[  Console  ]]-------------------------------------------------
+
+	menu.console.controls.back.Visible = false
+	menu.console.controls.spin.Visible = false
+
+	if services.UserInputService.GamepadEnabled then
+		menu.console.Visible = true
+	end
+
+	services.UserInputService.GamepadConnected:Connect(function()
+		menu.console.Visible = true
+	end)
+
+	services.UserInputService.GamepadDisconnected:Connect(function()
+		menu.console.Visible = false
+	end)
+
+	services.UserInputService.InputBegan:Connect(function(inputObject, processedEvent)
+		if inputObject.KeyCode == Enum.KeyCode.ButtonR1 and self.index[self.current] and script:GetAttribute("enabled") and not script:GetAttribute("freeze") and not self.tabs.debounce then
+			self.tabs.debounce = true
+			if self.index[self.current] == #menu.menu.main.buttons:GetChildren() - 1 then
+				for page, index in next, self.index do
+					if index and index == 1 then
+						references.Main.sounds.UI.Click:Play()
+						self:select(menu.menu.main.buttons[page])
+						task.delay(0.2, function()
+							self.tabs.debounce = false
+						end)
+						return
+					end
+				end
+			else
+				for page, index in next, self.index do
+					if index and index == self.index[self.current] + 1 then
+						references.Main.sounds.UI.Click:Play()
+						self:select(menu.menu.main.buttons[page])
+						task.delay(0.2, function()
+							self.tabs.debounce = false
+						end)
+						return
+					end
+				end
+			end
+			task.delay(0.2, function()
+				self.tabs.debounce = false
+			end)
+		elseif inputObject.KeyCode == Enum.KeyCode.ButtonL1 and self.index[self.current] and script:GetAttribute("enabled") and not script:GetAttribute("freeze") then
+			self.tabs.debounce = true
+			if self.index[self.current] == 1 then
+				for page, index in next, self.index do
+					if index and index == #menu.menu.main.buttons:GetChildren() - 1 then
+						references.Main.sounds.UI.Click:Play()
+						self:select(menu.menu.main.buttons[page])
+						task.delay(0.2, function()
+							self.tabs.debounce = false
+						end)
+						return
+					end
+				end
+			else
+				for page, index in next, self.index do
+					if index and index == self.index[self.current] - 1 then
+						references.Main.sounds.UI.Click:Play()
+						self:select(menu.menu.main.buttons[page])
+						task.delay(0.2, function()
+							self.tabs.debounce = false
+						end)
+						return
+					end
+				end
+			end
+			task.delay(0.2, function()
+				self.tabs.debounce = false
+			end)
+		elseif inputObject.KeyCode == Enum.KeyCode.ButtonA and self.navigation.current ~= "none" and self.navigation.container ~= "none" and script:GetAttribute("enabled") and not script:GetAttribute("freeze") then
+			if self.pages[self.navigation.container][self.navigation.current] then
+				if script:FindFirstChild(self.navigation.container) and script[self.navigation.container]:FindFirstChild(self.navigation.current) and script[self.navigation.container][self.navigation.current]:FindFirstChild("back") then
+					local connection
+
+					connection = script[self.navigation.container][self.navigation.current].back.Event:Connect(function()
+						connection:Disconnect()
+						task.delay(0.5, function()
+							services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+							services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0.3}):Play()
+							services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1.03}):Play()
+
+							if menu.menu.main.tabs[self.navigation.container][self.navigation.current].main:FindFirstChild("icon") then
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+							end
+
+							if menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.label.TextXAlignment == Enum.TextXAlignment.Left then
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 18, 0, 7)}):Play()
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, -3, 0, 3)}):Play()
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 18, 0, 57)}):Play()
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, -3, 0, 3)}):Play()
+							elseif menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.label.TextXAlignment == Enum.TextXAlignment.Right then
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 12, 0, 7)}):Play()
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 3, 0, 3)}):Play()
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 12, 0, 57)}):Play()
+								services.TweenService:Create(menu.menu.main.tabs[self.navigation.container][self.navigation.current].main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 3, 0, 3)}):Play()
+							end
+						end)
+					end)
+
+					menu.console.controls.back.Visible = true
+				else
+					for _, container in next, menu.menu.main.tabs:GetChildren() do
+						if container and container:IsA("Frame") then
+							for _, frame in next, container:GetChildren() do
+								if frame and frame:IsA("Frame") and frame:FindFirstChild("main") and frame.main:FindFirstChild("button") then
+									if frame.main:FindFirstChild("icon") then
+										services.TweenService:Create(frame.main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+									end
+
+									services.TweenService:Create(frame.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+									services.TweenService:Create(frame.main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+									services.TweenService:Create(frame.main.label, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+									services.TweenService:Create(frame.main.description, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+									services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
+									services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 10)}):Play()
+									services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+									services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 60)}):Play()
+									services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, -0)}):Play()
+								end
+							end
+						end
+					end
+				end
+
+				if self.navigation.current == "my player" or self.navigation.current == "cosmetics" then
+					menu.console.controls.spin.Visible = true
+				end
+
+				self.pages[self.navigation.container][self.navigation.current]:run(self.bulkFadeGroups[self.navigation.container])
+			end
+		elseif inputObject.KeyCode == Enum.KeyCode.ButtonB and self.navigation.current ~= "none" and self.navigation.container ~= "none" and script:GetAttribute("enabled") then
+			if script:FindFirstChild(self.navigation.container) and script[self.navigation.container]:FindFirstChild(self.navigation.current) and script[self.navigation.container][self.navigation.current]:FindFirstChild("back") then
+				menu.console.controls.back.Visible = false
+				menu.console.controls.spin.Visible = false
+				script[self.navigation.container][self.navigation.current].back:Fire()
+			end
+		elseif not processedEvent and not services.UserInputService:GetFocusedTextBox() and not firstPersonController:GetAttribute("firstPersonEnabled") and inputObject.KeyCode == Enum.KeyCode.M then
+			toggleMenu()
+		end
+	end)
+
+	services.UserInputService.InputChanged:Connect(function(inputObject, processedEvent)
+		if inputObject.KeyCode == Enum.KeyCode.Thumbstick1 and script:GetAttribute("enabled") and not script:GetAttribute("freeze") and self.navigation.current ~= "none" and self.navigation.container ~= "none" and not self.inputInProcess then
+			self.inputInProcess = true
+
+			if inputObject.Position.X >= 0.7 and not self.navigation.debounce then
+				self.navigation.debounce = true
+				self:move("right")
+			elseif inputObject.Position.X <= -0.7 and not self.navigation.debounce then
+				self.navigation.debounce = true
+				self:move("left")
+			elseif inputObject.Position.Y >= 0.7 and not self.navigation.debounce then
+				self.navigation.debounce = true
+				self:move("up")
+			elseif inputObject.Position.Y <= -0.7 and not self.navigation.debounce then
+				self.navigation.debounce = true
+				self:move("down")
+			elseif inputObject.Position.X < 0.3 and inputObject.Position.X > -0.3 and inputObject.Position.Y < 0.3 and inputObject.Position.Y > -0.3 and self.navigation.debounce then
+				task.delay(0.1, function()
+					self.navigation.debounce = false
+				end)
+			end
+
+			task.delay(0.2, function()
+				self.inputInProcess = false
+			end)
+		end 
+	end)
+
+	--[[  Icon  ]]-------------------------------------------------
+
+	menuButton.button.MouseEnter:Connect(function()
+		references.Main.sounds.UI.Hover:Play()
+		services.TweenService:Create(menuButton.background, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(177, 177, 177)}):Play()
+	end)
+
+	menuButton.button.MouseLeave:Connect(function()
+		services.TweenService:Create(menuButton.background, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+	end)
+
+	menuButton.button.MouseButton1Click:Connect(function()
+		toggleMenu()
+	end)
+
+	--[[  Camera  ]]-------------------------------------------------
+
+	main.Enabled = false
+	menu.Enabled = true
+
+	currentCamera.CameraType = Enum.CameraType.Scriptable
+	currentCamera.CFrame = workspace.game.menu.camera.menu.CFrame
+	currentCamera.FieldOfView = 30
+
+	services.Lighting.DepthOfField.Enabled = true
+	services.Lighting.DepthOfField.FarIntensity = 1
+	services.Lighting.DepthOfField.FocusDistance = 0
+	services.Lighting.DepthOfField.InFocusRadius = 50
+	services.Lighting.DepthOfField.NearIntensity = 0
+
+	config:updateProfile()
+
+	profile.level.XP.Changed:Connect(config.updateProfile)
+	profile.level.XPNeeded.Changed:Connect(config.updateProfile)
+	profile.level.Level.Changed:Connect(config.updateProfile)
+	cashTween.Changed:Connect(config.updateCash)
+
+	profile.stats.Cash.Changed:Connect(function()
+		references.Main.sounds.UI.Points:Play()
+		cashTween.Value = cashHolder.Value
+		services.TweenService:Create(cashTween, TweenInfo.new(0.35 * 5, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut), {Value = tonumber(profile.stats.Cash.Value)}):Play()
+	end)
+
+	services.RunService.Heartbeat:Connect(function(delta)
+		if script:GetAttribute("enabled") then
+			local mousePosition = Vector2.new(mouse.X, mouse.Y)
+			local centre = Vector2.new(currentCamera.ViewportSize.X / 2, currentCamera.ViewportSize.Y / 2)
+			local difference = mousePosition - centre
+			local unit = Vector2.new((difference.Y / centre.Y) * cameraLimit, (difference.X / centre.X)*  cameraLimit)
+
+			coreGui:SetCoreGui("SetCoreGuiEnabled", "Chat", false)
+			currentCamera.CameraType = Enum.CameraType.Scriptable
+
+			if not services.UserInputService.TouchEnabled and not services.UserInputService.GamepadEnabled then
+				services.TweenService:Create(currentCamera, TweenInfo.new(delta, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {FieldOfView = 30, CFrame = workspace.game.menu.camera.menu.CFrame:Lerp(workspace.game.menu.camera.play.CFrame, lerpValuePlay.Value):Lerp(workspace.game.menu.camera.customize.CFrame, lerpValueCustomize.Value) * CFrame.Angles(-unit.X / divider, -unit.Y / divider, 0)}):Play()
+			else
+				services.TweenService:Create(currentCamera, TweenInfo.new(delta, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {FieldOfView = 30, CFrame = workspace.game.menu.camera.menu.CFrame:Lerp(workspace.game.menu.camera.play.CFrame, lerpValuePlay.Value):Lerp(workspace.game.menu.camera.customize.CFrame, lerpValueCustomize.Value)}):Play()
+			end
+		end
+	end)
+
+	--[[  Buttons  ]]-------------------------------------------------
+
+	for _, frame in next, menu.menu.main.buttons:GetChildren() do
+		if frame and frame:IsA("Frame") then
+			frame.button.MouseEnter:Connect(function()
+				if script:GetAttribute("freeze") then
+					return
+				end
+
+				references.Main.sounds.UI.Hover:Play()
+				services.TweenService:Create(frame.background, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+
+				if frame:FindFirstChild("logo") then
+					services.TweenService:Create(frame.logo, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0.5, 0, 0.5, -2)}):Play()
+				elseif frame:FindFirstChild("label") then
+					services.TweenService:Create(frame.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0.5, 0, 0.5, -2)}):Play()
+				end
+			end)
+
+			frame.button.MouseLeave:Connect(function()
+				if script:GetAttribute("freeze") then
+					return
+				end
+
+				services.TweenService:Create(frame.background, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0}):Play()
+				if frame:FindFirstChild("logo") then
+					services.TweenService:Create(frame.logo, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+				elseif frame:FindFirstChild("label") then
+					services.TweenService:Create(frame.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0.5, 0, 0.5, 0)}):Play()
+				end
+			end)
+
+			frame.button.MouseButton1Click:Connect(function()
+				if script:GetAttribute("freeze") then
+					return
+				end
+
+				references.Main.sounds.UI.Click:Play()
+				self:select(frame)
+			end)
+		end
+	end
+
+	--[[  Tabs  ]]-------------------------------------------------
+
+	for _, page in next, script.pages:GetChildren() do
+		if page and page:IsA("ModuleScript") then
+			task.spawn(function()
+				require(page):init()
+			end)
+		end
+	end
+
+	for _, container in next, menu.menu.main.tabs:GetChildren() do
+		if container and container:IsA("Frame") then
+			if not self.pages[container.Name] and script:FindFirstChild(container.Name) then
+				self.pages[container.Name] = {}
+			end
+
+			for _, frame in next, container:GetChildren() do
+				if frame and frame:IsA("Frame") and frame:FindFirstChild("main") and frame.main:FindFirstChild("button") then
+					local mouseButton1Down = false
+
+					if script:FindFirstChild(container.Name) and script[container.Name]:FindFirstChild(frame.Name) then
+						self.pages[container.Name][frame.Name] = require(script[container.Name][frame.Name])
+					end
+
+					frame.main.button.MouseEnter:Connect(function()
+						if script:GetAttribute("freeze") then
+							return
+						end
+
+						references.Main.sounds.UI.Hover:Play()
+						services.TweenService:Create(frame.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 1}):Play()
+						services.TweenService:Create(frame.main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 0.3}):Play()
+						services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1.03}):Play()
+
+						if frame.main:FindFirstChild("icon") then
+							services.TweenService:Create(frame.main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(255, 255, 255)}):Play()
+						end
+
+						if frame.main.label.TextXAlignment == Enum.TextXAlignment.Left then
+							services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 18, 0, 7)}):Play()
+							services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, -3, 0, 3)}):Play()
+							services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 18, 0, 57)}):Play()
+							services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, -3, 0, 3)}):Play()
+						elseif frame.main.label.TextXAlignment == Enum.TextXAlignment.Right then
+							services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 12, 0, 7)}):Play()
+							services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 3, 0, 3)}):Play()
+							services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(255, 255, 255), Position = UDim2.new(0, 12, 0, 57)}):Play()
+							services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 3, 0, 3)}):Play()
+						end
+					end)
+
+					frame.main.button.MouseLeave:Connect(function()
+						if script:GetAttribute("freeze") then
+							return
+						end
+
+						if frame.main:FindFirstChild("icon") then
+							services.TweenService:Create(frame.main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+						end
+
+						services.TweenService:Create(frame.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+						services.TweenService:Create(frame.main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+						services.TweenService:Create(frame.main.label, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+						services.TweenService:Create(frame.main.description, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+						services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
+						services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 10)}):Play()
+						services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+						services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 60)}):Play()
+						services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, -0)}):Play()
+					end)
+
+					frame.main.button.MouseButton1Down:Connect(function()
+						if script:GetAttribute("freeze") then
+							return
+						end
+
+						references.Main.sounds.UI.Click:Play()
+						mouseButton1Down = true
+						services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 0.9}):Play()
+					end)
+
+					services.UserInputService.InputEnded:Connect(function(inputObject, processedEvent)
+						if (inputObject.UserInputType == Enum.UserInputType.MouseButton1 or inputObject.UserInputType == Enum.UserInputType.Touch) and mouseButton1Down and not script:GetAttribute("freeze") then
+							mouseButton1Down = false
+
+							if frame.main:FindFirstChild("icon") then
+								services.TweenService:Create(frame.main.icon.icon, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+							end
+
+							services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Scale = 1}):Play()
+							services.TweenService:Create(frame.main, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {BackgroundTransparency = 0}):Play()
+							services.TweenService:Create(frame.main.gfx.gfx, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {ImageTransparency = 1}):Play()
+							services.TweenService:Create(frame.main.label, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+							services.TweenService:Create(frame.main.description, TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50)}):Play()
+							services.TweenService:Create(frame.main.UIScale, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Scale = 1}):Play()
+							services.TweenService:Create(frame.main.label, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 10)}):Play()
+							services.TweenService:Create(frame.main.label.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+							services.TweenService:Create(frame.main.description, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {TextColor3 = Color3.fromRGB(35, 39, 50), Position = UDim2.new(0, 15, 0, 60)}):Play()
+							services.TweenService:Create(frame.main.description.shadow, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Position = UDim2.new(0, 0, 0, -0)}):Play()
+							print(self.pages)
+							print(container.Name)
+							print(frame.Name)
+							if self.pages[container.Name][frame.Name] then
+								self.pages[container.Name][frame.Name]:run(self.bulkFadeGroups[container.Name])
+							end
+						end
+					end)
+				end
+			end
+		end
+	end
+end
+
+return config
