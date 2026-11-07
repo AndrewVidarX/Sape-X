@@ -1,1 +1,291 @@
+return {
+	_run = function(debounce, part, hit)
+		local position = Vector3.new(part.Position.X, _G._references.Main["set pieces"]["Throw In"].Primary.Position.Y, hit.Position.Z)
+		local functions = require(script.Parent:WaitForChild("shared", 100))
+		local offside = _G._engine:load("Offside")
+		local ai = _G._engine:load("AI")
+		local system = _G._engine:load("ThrowIn")
+		local config = _G._references.Main.config
+		
+		table.insert(debounce, part.Name)
+		_G._references.Main.sounds.CammySounds.Atmosphere.Referee.Whistle:Play()
+		
+		if workspace.game.referee.rigs:FindFirstChild("main") then
+			task.spawn(function()
+				ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+			end)
+		end
 
+		if hit and (_G._services.RunService:IsStudio() or hit:GetAttribute("lastTouch") ~= 0) then
+			local lastTouch = functions:getLastTouch(hit)
+			local closestPlayer = nil
+			local closestPlayerDistance = math.huge
+			
+			if #workspace.game.balls.server:GetChildren() == 1 then
+				if workspace.game.balls.server.RF.Position.Z >= 0 and lastTouch == "away" then
+					if workspace.game.referee.rigs:FindFirstChild("assistant2") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.assistant2, "Right")
+						end)
+					end
+				elseif workspace.game.balls.server.RF.Position.Z >= 0 and lastTouch == "home" then
+					if workspace.game.referee.rigs:FindFirstChild("assistant2") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.assistant2, "Left")
+						end)
+					end
+				elseif workspace.game.balls.server.RF.Position.Z < 0 and lastTouch == "home" then
+					if workspace.game.referee.rigs:FindFirstChild("assistant1") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.assistant1, "Right")
+						end)
+					end
+				elseif workspace.game.balls.server.RF.Position.Z < 0 and lastTouch == "away" then
+					if workspace.game.referee.rigs:FindFirstChild("assistant1") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.assistant1, "Left")
+						end)
+					end
+				end
+			end
+			
+			if config.Override:FindFirstChild("Foul") and not config.Override:FindFirstChild("Penalty") then
+				config.Override.Foul:Destroy()
+			end
+			
+			offside:clear()
+			
+			local disableFouls = Instance.new("BoolValue")
+			disableFouls.Name = "DisableFouls"
+			disableFouls.Value = true
+			disableFouls.Parent = config.Override
+			
+			local noReact = Instance.new("BoolValue")
+			noReact.Name = "NoReact"
+			noReact.Value = true
+			noReact.Parent = config.Delay
+			
+			local override = Instance.new("BoolValue")
+			override.Name = "Break"
+			override.Value = true
+			override.Parent = config.Override
+			
+			local rtp = Instance.new("BoolValue")
+			rtp.Name = "RTP"
+			rtp.Value = true
+			rtp.Parent = config.Override
+			
+			config.TimerSpeed.Value = 1
+			
+			if _G._references.Main.config.Break.Value then
+				if _G._references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+
+				disableFouls:Destroy()
+				noReact:Destroy()
+				override:Destroy()
+				rtp:Destroy()
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+				return
+			end
+
+			local function getClosestPlayer()
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and player.Team and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and not string.find(string.lower(player.Team.Name), "gk") then
+						if ((_G._services.RunService:IsStudio() or (string.find(string.lower(player.Team.Name), "home") and lastTouch == "away") or (string.find(string.lower(player.Team.Name), "away") and lastTouch == "home"))) and not _G._references.Main.cards.red:FindFirstChild(player.Name) then
+							if (player.Character.HumanoidRootPart.Position - position).Magnitude <= closestPlayerDistance then
+								closestPlayer = player
+								closestPlayerDistance = (player.Character.HumanoidRootPart.Position - position).Magnitude
+							end
+						end
+					end
+				end
+			end
+
+			getClosestPlayer()
+
+			if not closestPlayer then
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and player.Team and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and not string.find(string.lower(player.Team.Name), "gk") then
+						if (_G._services.RunService:IsStudio() or (string.find(string.lower(player.Team.Name), "home") and lastTouch == "away") or (string.find(string.lower(player.Team.Name), "away") and lastTouch == "home")) and not closestPlayer and not _G._references.Main.cards.red:FindFirstChild(player.Name) then
+							closestPlayer = player
+							closestPlayerDistance = (player.Character.HumanoidRootPart.Position - position).Magnitude
+						end
+					end
+				end
+			end
+
+			if closestPlayer then
+				for _, reference in next, {"serverRagdollBinder", "getUpBinder"} do
+					while closestPlayer and closestPlayer.Character:GetAttribute(reference) do
+						task.wait()
+					end
+				end
+
+				local signal = _G._references.RemoteEvent:FireClient(closestPlayer, "shiftLock", false)
+				_G._references.RemoteEvent:FireClient(closestPlayer, "bindMovement", "freeze")
+				_G._references.RemoteEvent:FireClient(closestPlayer, "forceDisable", true)
+
+				if closestPlayerDistance >= 70 then
+					task.wait(2)
+
+					if not closestPlayer or (closestPlayer and not closestPlayer.Character) or (closestPlayer and closestPlayer.Character and not closestPlayer.Character:FindFirstChild("HumanoidRootPart")) then
+						for _, player in next, _G._services.Players:GetPlayers() do
+							if player and player.Team and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and not string.find(string.lower(player.Team.Name), "gk") and not _G._references.Main.cards.red:FindFirstChild(player.Name) then
+								if (_G._services.RunService:IsStudio() or (string.find(string.lower(player.Team.Name), "home") and lastTouch == "away") or (string.find(string.lower(player.Team.Name), "away") and lastTouch == "home")) and (not closestPlayer or (closestPlayer and not closestPlayer.Character)) then
+									closestPlayer = player
+									closestPlayerDistance = (player.Character.HumanoidRootPart.Position - position).Magnitude
+
+									local signal = _G._references.RemoteFunction:InvokeClient(closestPlayer, "shiftLock", false)
+									_G._references.RemoteEvent:FireClient(closestPlayer, "bindMovement", "freeze")
+									_G._references.RemoteEvent:FireClient(closestPlayer, "forceDisable", true)
+
+									for _, reference in next, {"serverRagdollBinder", "getUpBinder"} do
+										while closestPlayer and closestPlayer.Character:GetAttribute(reference) do
+											task.wait()
+										end
+									end
+								end
+							end
+						end
+					end
+					
+					if closestPlayer then
+						local teleport = Instance.new("BoolValue", closestPlayer)
+						teleport.Name = "Teleport"
+						teleport.Value = true
+						_G._services.Debris:AddItem(teleport, 3)
+
+						noReact:Destroy()
+						closestPlayer.Character:SetPrimaryPartCFrame(CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()))
+						system.new(closestPlayer, part, position)
+						if table.find(debounce, part.Name) then
+							table.remove(debounce, table.find(debounce, part.Name))
+						end
+					else
+						hit.CFrame = CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()) * CFrame.new(0, 0, -5)
+						hit.AssemblyLinearVelocity = Vector3.zero
+						hit.AssemblyAngularVelocity = Vector3.zero
+						disableFouls:Destroy()
+						override:Destroy()
+						rtp:Destroy()
+						_G._references.Main.config.TimerSpeed.Value = 9
+						table.remove(debounce, table.find(debounce, part.Name))
+						return
+					end
+				else
+					task.wait(closestPlayer:GetNetworkPing())
+
+					if not closestPlayer or (closestPlayer and not closestPlayer.Character) then
+						hit.CFrame = CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()) * CFrame.new(0, 0, -5)
+						hit.AssemblyLinearVelocity = Vector3.zero
+						hit.AssemblyAngularVelocity = Vector3.zero
+						disableFouls:Destroy()
+						override:Destroy()
+						rtp:Destroy()
+						_G._references.Main.config.TimerSpeed.Value = 9
+						table.remove(debounce, table.find(debounce, part.Name))
+						return
+					end
+
+					closestPlayer.Character:SetAttribute("moveTo", true)
+					closestPlayer.Character.Humanoid:MoveTo(position)
+
+					local connection
+					
+					connection = _G._services.Players.PlayerRemoving:Connect(function(player)
+						if player and player == closestPlayer then
+							if connection then
+								connection:Disconnect()
+							end
+							
+							hit.CFrame = CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()) * CFrame.new(0, 0, -5)
+							hit.AssemblyLinearVelocity = Vector3.zero
+							hit.AssemblyAngularVelocity = Vector3.zero
+							disableFouls:Destroy()
+							override:Destroy()
+							rtp:Destroy()
+							_G._references.Main.config.TimerSpeed.Value = 9
+							table.remove(debounce, table.find(debounce, part.Name))
+							return
+						end
+					end)
+					
+					local moveToFinished = _G._references.RemoteFunction:InvokeClient(closestPlayer, "moveTo", position)
+					connection:Disconnect()
+
+					if closestPlayer and closestPlayer.Character then
+						noReact:Destroy()
+						closestPlayer.Character:SetPrimaryPartCFrame(CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()))
+						system.new(closestPlayer, part, position)
+					else
+						hit.CFrame = CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()) * CFrame.new(0, 0, -5)
+						hit.AssemblyLinearVelocity = Vector3.zero
+						hit.AssemblyAngularVelocity = Vector3.zero
+						disableFouls:Destroy()
+						override:Destroy()
+						rtp:Destroy()
+						_G._references.Main.config.TimerSpeed.Value = 9
+						table.remove(debounce, table.find(debounce, part.Name))
+						return
+					end
+
+					if table.find(debounce, part.Name) then
+						table.remove(debounce, table.find(debounce, part.Name))
+					end
+				end
+			else
+				hit.CFrame = CFrame.new(position) * CFrame.Angles(part.CFrame:ToOrientation()) * CFrame.new(0, 0, -5)
+				hit.AssemblyLinearVelocity = Vector3.zero
+				hit.AssemblyAngularVelocity = Vector3.zero
+				_G._references.Main.config.TimerSpeed.Value = 9
+				disableFouls:Destroy()
+				override:Destroy()
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+				
+				for _,v in next, _G._references.Main.config.Override:GetChildren() do
+					if v and v.Name == "DisableFouls" then
+						v:Destroy()
+					end
+				end
+				
+				for _,v in next, _G._references.Main.config.Override:GetChildren() do
+					if v and v.Name == "RTP" then
+						v:Destroy()
+					end
+				end
+			end
+		else
+			if hit then
+				hit.CFrame = CFrame.new(_G._references.Main.admin.positions.LBALL.Position)
+				hit.AssemblyLinearVelocity = Vector3.new()
+				hit.AssemblyAngularVelocity = Vector3.new()
+			end
+			
+			for _,v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and v.Name == "Break" then
+					v:Destroy()
+				end
+			end
+			
+			for _,v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and v.Name == "RTP" then
+					v:Destroy()
+				end
+			end
+			
+			if table.find(debounce, part.Name) then
+				table.remove(debounce, table.find(debounce, part.Name))
+			end
+		end
+	end,
+}
