@@ -1,0 +1,625 @@
+return {
+	_run = function(debounce, part, hit)
+		local config = _G._references.Main.config
+		local ai = _G._engine:load("AI")
+		local glt = _G._engine:load("GLT")
+		local offside = _G._engine:load("Offside")
+		local objectives = _G._engine:load("Objectives")
+		local ballUtil = _G._engine:load("Balls", "modules")
+		local teamService = _G._engine:load("TeamService", "utils")
+		local monetization = _G._engine:load("Monetization", "utils")
+		local badgeService = _G._engine:load("BadgeService", "utils")
+
+		if hit and (_G._services.RunService:IsStudio() or hit:GetAttribute("possessor") ~= 0) and not script:FindFirstChild("debounce") and not config.Penalties.Enabled.Value then
+			local goalScorer = "Player"
+			local isFreeKickGoal = false
+			local isPenaltyGoal = false
+			local goalScorerPlayer = nil
+			local assist = nil
+			local assistPlayer = nil
+			
+			local debounceValue = Instance.new("BoolValue")
+			debounceValue.Name = "debounce"
+			debounceValue.Value = true
+			debounceValue.Parent = script
+			
+			for _, player in next, _G._services.Players:GetPlayers() do
+				if player and player.UserId == hit:GetAttribute("possessor") then
+					if string.find(player.Team.Name, part.Name) then
+						goalScorer = player.Name .. " (OG)"
+					else
+						goalScorerPlayer = player
+						
+						if game.PrivateServerOwnerId == 0 and (_G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) or game.PlaceId == 15690159367) then
+							local profile = _G._references.Profiles:WaitForChild(tostring(hit:GetAttribute("possessor")), 100)
+							if profile then
+								local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+
+								if doubleXP or player:GetAttribute("hasRFPremium") then
+									profile.level.XP.Value += 70
+								else
+									profile.level.XP.Value += 35
+								end
+								
+								profile.stats.Goals.Value += 1
+								
+								if hit:GetAttribute("penalty") then
+									isPenaltyGoal = true
+									profile.stats.Penalties.Value += 1
+								elseif hit:GetAttribute("freeKick") then
+									isFreeKickGoal = true
+									profile.stats["Free Kicks"].Value += 1
+								end
+							end
+						end
+						
+						goalScorer = player.Name
+					end
+				elseif player and player.UserId == hit:GetAttribute("lastPass") then
+					if game.PrivateServerOwnerId == 0 and _G._services.Players.NumPlayers >= math.floor(_G._maxPlayers / 2) then
+						local profile = _G._references.Profiles:WaitForChild(tostring(hit:GetAttribute("lastPass")), 100)
+						if profile then
+							local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+
+							if doubleXP or player:GetAttribute("hasRFPremium") then
+								profile.level.XP.Value += 30
+							else
+								profile.level.XP.Value += 15
+							end
+							
+							profile.stats.Assists.Value += 1
+						end
+					end
+					
+					assistPlayer = player
+					assist = player.Name
+				end
+			end
+			
+			offside:clear()
+			
+			local attributes = {
+				ballTopSpeed = hit:GetAttribute("ballTopSpeed"),
+				lastTouchPosition = hit:GetAttribute("lastTouchPosition"),
+				lastTouchUser = hit:GetAttribute("lastTouchUser")
+			}
+			
+			local goal = Instance.new("StringValue")
+			goal.Name = "Goal"
+			goal.Parent = config.Override
+			
+			local override = Instance.new("BoolValue")
+			override.Name = "Break"
+			override.Value = true
+			override.Parent = config.Override
+			
+			if string.find(part.Name, "Home") then
+				goal.Value = "home"
+			else
+				goal.Value = "away"
+			end
+			
+			local noReact = Instance.new("BoolValue")
+			noReact.Name = "NoReact"
+			noReact.Value = true
+			noReact.Parent = config.Delay
+			
+			local disableFouls = Instance.new("BoolValue")
+			disableFouls.Name = "DisableFouls"
+			disableFouls.Value = true
+			disableFouls.Parent = config.Override
+			
+			task.wait(0.35)
+			
+			if goal.Parent and goal.Parent == config.Override then
+				if (goal:GetAttribute("save") and (hit.Position.Z <= -351.212 or hit.Position.Z >= 351.212)) or (not goal:GetAttribute("save") and not hit:GetAttribute("catch") and glt:isIn()) or (hit:GetAttribute("catch") and glt:isIn()) then
+					local region = teamService:getRegionFromTeam("Home")
+
+					if goal.Value == "home" then
+						region = teamService:getRegionFromTeam("Away")
+					end
+
+					local cheerSoundArray = _G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Goal Cheers"][region]:GetChildren()
+					local cheerSoundInstance = cheerSoundArray[math.random(1, #cheerSoundArray)]
+					cheerSoundInstance:Play()
+					_G._references.Main.fans.Cheer.Value = true
+
+					if _G._replays then
+						_G._references.RemoteEvent:FireAllClients("endReplay", "goal", attributes)
+					end
+				else
+					disableFouls:Destroy()
+					debounceValue:Destroy()
+					
+					if override and override.Parent then
+						override:Destroy()
+					end
+					if goal and goal.Parent then
+						goal:Destroy()
+					end
+					if noReact and noReact.Parent then
+						noReact:Destroy()
+					end
+					
+					_G._references.Main.fans.Cheer.Value = false
+				end
+			end
+			
+			task.wait(1.5)
+			
+			if goal.Parent and goal.Parent == config.Override and _G._references.Main.config.TimerSpeed.Value ~= 1 then
+				if (goal:GetAttribute("save") and (hit.Position.Z <= -351.212 or hit.Position.Z >= 351.212)) or (not goal:GetAttribute("save") and not hit:GetAttribute("catch") and glt:isIn()) or (hit:GetAttribute("catch") and glt:isIn()) then
+					_G._references.Main.sounds.CammySounds.Atmosphere.Referee.Whistle:Play()
+					_G._references.Main.config.Offside:ClearAllChildren()
+
+					for _, value in next, _G._references.Main.config.Override:GetChildren() do
+						if value and value.Name == "Foul" then
+							value:Destroy()
+						end
+					end
+					
+					if assistPlayer and assistPlayer.Parent and _G._references.Main.objectives:FindFirstChild(tostring(assistPlayer.UserId)) then
+						local playerObjectives = _G._references.Main.objectives:WaitForChild(tostring(assistPlayer.UserId), 100)
+						local profile = _G._references.Profiles:WaitForChild(tostring(assistPlayer.UserId), 100)
+						local doubleXP = monetization.userOwnsPass(assistPlayer, monetization.gamePasses["2x XP"].gamePassId)
+						local doublePoints = monetization.userOwnsPass(assistPlayer, monetization.gamePasses["2x Points"].gamePassId)
+
+						if playerObjectives and profile then
+							for _,v in next, playerObjectives:GetChildren() do
+								if v and objectives._objectives[v.Name] then
+									local reference = v.Name
+									local objective = objectives._objectives[reference]
+
+									local function objectiveCompleted()
+										if doubleXP then
+											profile.level.XP.Value += objective._rewards.xp * 2
+											_G._references.RemoteEvent:FireClient(assistPlayer, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp * 2)), "success")
+										else
+											profile.level.XP.Value += objective._rewards.xp
+											_G._references.RemoteEvent:FireClient(assistPlayer, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp)), "success")
+										end
+										if doublePoints then
+											profile.stats.Cash.Value += objective._rewards.points * 2
+											_G._references.RemoteEvent:FireClient(assistPlayer, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points * 2)), "success")
+										else
+											profile.stats.Cash.Value += objective._rewards.points
+											_G._references.RemoteEvent:FireClient(assistPlayer, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points)), "success")
+										end
+									end
+
+									if string.find(string.lower(reference), "make") and string.find(string.lower(reference), "assists") then
+										if #v:GetChildren() < objective._repeat then
+											local boolValue = Instance.new("BoolValue")
+											boolValue.Name = tostring(#v:GetChildren() + 1)
+											boolValue.Parent = v
+
+											if tostring(boolValue.Name) == tostring(objective._repeat) then
+												v.Value = true
+												objectiveCompleted()
+											end
+										end
+									end
+
+									if reference == "Assist a goal" then
+										v.Value = true
+										objectiveCompleted()
+									end
+								end
+							end
+						end
+					end
+					
+					if goalScorerPlayer and _G._references.Main.objectives:FindFirstChild(tostring(goalScorerPlayer.UserId)) then
+						local playerObjectives = _G._references.Main.objectives:WaitForChild(tostring(goalScorerPlayer.UserId), 100)
+						local profile = _G._references.Profiles:WaitForChild(tostring(goalScorerPlayer.UserId), 100)
+						local doubleXP = monetization.userOwnsPass(goalScorerPlayer, monetization.gamePasses["2x XP"].gamePassId)
+						local doublePoints = monetization.userOwnsPass(goalScorerPlayer, monetization.gamePasses["2x Points"].gamePassId)
+
+						if playerObjectives and profile then
+							for _,v in next, playerObjectives:GetChildren() do
+								if v and objectives._objectives[v.Name] then
+									local reference = v.Name
+									local objective = objectives._objectives[reference]
+
+									local function objectiveCompleted()
+										if doubleXP then
+											profile.level.XP.Value += objective._rewards.xp * 2
+											_G._references.RemoteEvent:FireClient(goalScorerPlayer, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp * 2)), "success")
+										else
+											profile.level.XP.Value += objective._rewards.xp
+											_G._references.RemoteEvent:FireClient(goalScorerPlayer, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp)), "success")
+										end
+										if doublePoints then
+											profile.stats.Cash.Value += objective._rewards.points * 2
+											_G._references.RemoteEvent:FireClient(goalScorerPlayer, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points * 2)), "success")
+										else
+											profile.stats.Cash.Value += objective._rewards.points
+											_G._references.RemoteEvent:FireClient(goalScorerPlayer, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points)), "success")
+										end
+									end
+
+									if string.find(string.lower(reference), "score") and string.find(string.lower(reference), "goals") then
+										if #v:GetChildren() < objective._repeat then
+											local boolValue = Instance.new("BoolValue")
+											boolValue.Name = tostring(#v:GetChildren() + 1)
+											boolValue.Parent = v
+
+											if tostring(boolValue.Name) == tostring(objective._repeat) then
+												v.Value = true
+												objectiveCompleted()
+											end
+										end
+									end
+
+									if ((reference == "Score a free kick goal" and isFreeKickGoal) or (reference == "Score a penalty" and isPenaltyGoal) or (reference == "Score a goal")) and not v.Value then
+										v.Value = true
+										objectiveCompleted()
+									end
+								end
+							end
+						end
+					end
+
+					if workspace.game.referee.rigs:FindFirstChild("main") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+						end)
+					end
+					
+					if goal.Value == "home" then
+						_G._references.RemoteEvent:FireAllClients("goal", goalScorer, "Away", assist)
+					else
+						_G._references.RemoteEvent:FireAllClients("goal", goalScorer, "Home", assist)
+					end
+					
+					_G._references.Main.config.Goal.Value = true
+					_G._references.Main.config.TimerSpeed.Value = 1
+					
+					if isPenaltyGoal and not string.find(goalScorer, "(OG)") then
+						goalScorer = goalScorer .. " (P)"
+					end
+					
+					local scorerValue = Instance.new("IntValue")
+					scorerValue.Name = goalScorer
+					scorerValue.Value = config.Timer.Minutes.Value
+					
+					if goal.Value == "home" then
+						scorerValue.Parent = config.Scorers.Away
+					else
+						scorerValue.Parent = config.Scorers.Home
+					end
+					
+					if goal.Value == "home" then
+						_G._references.Main.config.Stats.Away.Score.Value += 1
+						_G._references.Main.config.Stats.Away["Accurate Shots"].Value += 1
+					elseif goal.Value == "away" then
+						_G._references.Main.config.Stats.Home.Score.Value += 1
+						_G._references.Main.config.Stats.Home["Accurate Shots"].Value += 1
+					end
+					
+					local overrideValue = Instance.new("BoolValue")
+					overrideValue.Name = "Goal"
+					overrideValue.Value = true
+					overrideValue.Parent = _G._references.Main.config["Set Pieces"]
+					
+					_G._references.Main.config.VoteFix.Value = false
+
+					if _G._replays then
+						task.wait(3)
+
+						local players = {}
+						local lastTick = tick()
+
+						for _, plr in next, _G._services.Players:GetPlayers() do
+							if plr and (plr.TeamColor == BrickColor.new("Storm blue") or plr.TeamColor == BrickColor.new("Navy blue") or plr.TeamColor == BrickColor.new("Crimson") or plr.TeamColor == BrickColor.new("Maroon")) then
+								table.insert(players, plr)
+							end
+						end
+
+						_G._references.RemoteEvent:FireAllClients("replay", "goal", goal.Value)
+						_G._references.Main.config.Goal.Value = false
+
+						while #_G._references.Main.replay:GetChildren() < #players do
+							if tick() - lastTick >= 20 then
+								break
+							end
+							task.wait()
+						end
+
+						_G._references.Main.replay:ClearAllChildren()
+					else
+						if _G._references.Main.config.GoldenGoal.Value then
+							task.wait(7)
+							
+							if _G._references.Main.config.AutoRall.Value then
+								for _,v in next, workspace.game.balls.spawns:GetChildren() do
+									if v then
+										v:Destroy()
+									end
+								end
+							end
+							
+							if goal and goal.Parent then
+								goal:Destroy()
+							end
+							
+							_G._references.BindableEvent:Fire("clearSpace")
+							_G._references.Main.config.Goal.Value = false
+							debounceValue:Destroy()
+							_G._references.Main.fans.Cheer.Value = false
+							override:Destroy()
+							overrideValue:Destroy()
+							noReact:Destroy()
+
+							if part.Name == "Home" then
+								script.Parent.signal:Fire("autoWin", "Away")
+							elseif part.Name == "Away" then
+								script.Parent.signal:Fire("autoWin", "Home")
+							end
+						else
+							if not string.find(goalScorer, "(OG)") and goalScorerPlayer then
+								_G._references.Main.config.Celebrate.Value = true
+								_G._references.RemoteEvent:FireClient(goalScorerPlayer, "celebration", "start")
+							end
+							
+							task.wait(5)
+							
+							if _G._references.Main.config.AutoRall.Value then
+								for _,v in next, workspace.game.balls.spawns:GetChildren() do
+									if v then
+										v:Destroy()
+									end
+								end
+							end
+							
+							_G._references.BindableEvent:Fire("clearSpace")
+							debounceValue:Destroy()
+							
+							if _G._references.Main.config.Break.Value then
+								task.wait(6)
+								_G._references.Main.config.Celebrate.Value = false
+								_G._references.Main.config.Goal.Value = false
+								
+								task.wait(1)
+								
+								local start = tick()
+								
+								if _G._references.Main.config.CelebrationInProgress.Value then
+									while _G._references.Main.config.CelebrationInProgress.Value and tick() - start < 20 do
+										task.wait(0.5)
+									end
+								end
+								
+								if not string.find(goalScorer, "(OG)") and goalScorerPlayer then
+									_G._references.RemoteEvent:FireClient(goalScorerPlayer, "celebration", "end")
+								end
+								
+								_G._references.Main.fans.Cheer.Value = false
+								overrideValue:Destroy()
+								override:Destroy()
+								disableFouls:Destroy()
+								noReact:Destroy()
+								
+								if goal and goal.Parent then
+									goal:Destroy()
+								end
+								
+								for _,v in next, _G._references.Main.config.Override:GetChildren() do
+									if v and v.Name == "Break" then
+										v:Destroy()
+									end
+								end
+								
+								for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+									if v and v.Name == "NoReact" then
+										v:Destroy()
+									end
+								end
+
+								return
+							else
+								task.wait(8)
+								_G._references.Main.config.Celebrate.Value = false
+								_G._references.Main.config.Goal.Value = false
+								
+								task.wait(2)
+								
+								local start = tick()
+
+								if _G._references.Main.config.CelebrationInProgress.Value then
+									while _G._references.Main.config.CelebrationInProgress.Value and tick() - start < 20 do
+										task.wait(0.5)
+									end
+								end
+
+								if not string.find(goalScorer, "(OG)") and goalScorerPlayer then
+									_G._references.RemoteEvent:FireClient(goalScorerPlayer, "celebration", "end")
+								end
+
+								_G._references.Main.fans.Cheer.Value = false
+								overrideValue:Destroy()
+								disableFouls:Destroy()
+								noReact:Destroy()
+								
+								if goal and goal.Parent then
+									goal:Destroy()
+								end
+								
+								for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+									if v and v.Name == "NoReact" then
+										v:Destroy()
+									end
+								end
+
+								if part.Name == "Home" then
+									script.Parent.signal:Fire("kickOff", "home")
+								elseif part.Name == "Away" then
+									script.Parent.signal:Fire("kickOff", "away")
+								end
+							end
+						end
+					end
+				else
+					if goal and goal.Parent then
+						goal:Destroy()
+					end
+					if noReact and noReact.Parent then
+						noReact:Destroy()
+					end
+					if disableFouls and disableFouls.Parent then
+						disableFouls:Destroy()
+					end
+					if debounceValue and debounceValue.Parent then
+						debounceValue:Destroy()
+					end
+					if override and override.Parent then
+						override:Destroy()
+					end
+					_G._references.Main.fans.Cheer.Value = false
+					_G._references.Main.config.Goal.Value = false
+				end
+			else
+				if goal and goal.Parent then
+					goal:Destroy()
+				end
+				if noReact and noReact.Parent then
+					noReact:Destroy()
+				end
+				if disableFouls and disableFouls.Parent then
+					disableFouls:Destroy()
+				end
+				if debounceValue and debounceValue.Parent then
+					debounceValue:Destroy()
+				end
+				if override and override.Parent then
+					override:Destroy()
+				end
+				_G._references.Main.fans.Cheer.Value = false
+				_G._references.Main.config.Goal.Value = false
+			end
+		elseif not script:FindFirstChild("debounce") and not config.Penalties.Enabled.Value then
+			if hit and string.lower(part.Name) == "home" then
+				hit.CFrame = CFrame.new(_G._references.Main.admin.positions.HGK.Position)
+				hit.AssemblyLinearVelocity = Vector3.new()
+				hit.AssemblyAngularVelocity = Vector3.new()
+			elseif hit and string.lower(part.Name) == "away" then
+				hit.CFrame = CFrame.new(_G._references.Main.admin.positions.AGK.Position)
+				hit.AssemblyLinearVelocity = Vector3.new()
+				hit.AssemblyAngularVelocity = Vector3.new()
+			end
+			
+			for _,v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and v.Name == "Break" then
+					v:Destroy()
+				end
+			end
+			
+			if table.find(debounce, part.Name) then
+				table.remove(debounce, table.find(debounce, part.Name))
+			end
+		elseif hit and not script:FindFirstChild("debounce") and config.Penalties.Enabled.Value and hit:GetAttribute("penalty") then
+			local debounceValue = Instance.new("BoolValue")
+			debounceValue.Name = "debounce"
+			debounceValue.Value = true
+			debounceValue.Parent = script
+			
+			local goal = Instance.new("StringValue")
+			goal.Name = "Goal"
+			goal.Parent = config.Override
+
+			if string.find(part.Name, "Home") then
+				goal.Value = "home"
+			else
+				goal.Value = "away"
+			end
+			
+			local noReact = Instance.new("BoolValue")
+			noReact.Name = "NoReact"
+			noReact.Value = true
+			noReact.Parent = config.Delay
+			
+			task.wait(0.35)
+
+			if goal.Parent and goal.Parent == config.Override then
+				if (goal:GetAttribute("save") and (hit.Position.Z <= -351.212 or hit.Position.Z >= 351.212)) or (not goal:GetAttribute("save") and not hit:GetAttribute("catch") and glt:isIn()) or (hit:GetAttribute("catch") and glt:isIn()) then
+					local region = teamService:getRegionFromTeam("Home")
+
+					if goal.Value == "home" then
+						region = teamService:getRegionFromTeam("Away")
+					end
+
+					local cheerSoundArray = _G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Goal Cheers"][region]:GetChildren()
+					local cheerSoundInstance = cheerSoundArray[math.random(1, #cheerSoundArray)]
+					cheerSoundInstance:Play()
+					_G._references.Main.fans.Cheer.Value = true
+				else
+					if goal and goal.Parent then
+						goal:Destroy()
+					end
+					if noReact and noReact.Parent then
+						noReact:Destroy()
+					end
+
+					_G._references.Main.fans.Cheer.Value = false
+				end
+			end
+			
+			task.wait(1.5)
+
+			if goal.Parent and goal.Parent == config.Override then
+				if (goal:GetAttribute("save") and (hit.Position.Z <= -351.212 or hit.Position.Z >= 351.212)) or (not goal:GetAttribute("save") and not hit:GetAttribute("catch") and glt:isIn()) or (hit:GetAttribute("catch") and glt:isIn()) then
+					_G._references.Main.sounds.CammySounds.Atmosphere.Referee.Whistle:Play()
+					_G._references.Main.config.Penalties.Taken.Value = true
+					script.Parent.signal:Fire("goal")
+				else
+					if goal and goal.Parent then
+						goal:Destroy()
+					end
+					if noReact and noReact.Parent then
+						noReact:Destroy()
+					end
+
+					_G._references.Main.fans.Cheer.Value = false
+				end
+			else
+				if goal and goal.Parent then
+					goal:Destroy()
+				end
+				if noReact and noReact.Parent then
+					noReact:Destroy()
+				end
+
+				_G._references.Main.fans.Cheer.Value = false
+			end
+			
+			task.wait(3)
+			
+			if table.find(debounce, part.Name) then
+				table.remove(debounce, table.find(debounce, part.Name))
+			end
+			
+			if goal and goal.Parent then
+				goal:Destroy()
+			end
+			if noReact and noReact.Parent then
+				noReact:Destroy()
+			end
+			
+			_G._references.Main.fans.Cheer.Value = false
+			
+			if _G._references.Main.config.AutoRall.Value then
+				for _,v in next, workspace.game.balls.spawns:GetChildren() do
+					if v then
+						v:Destroy()
+					end
+				end
+			end
+			
+			task.wait(0.5)
+			
+			if debounceValue and debounceValue.Parent then
+				debounceValue:Destroy()
+			end
+		end
+	end,
+}
