@@ -1,0 +1,581 @@
+return {
+	_init = function()
+		--[[  Dependencies  ]]---------------------------------------------------------------------
+
+		local system = workspace.game.system
+		local config = _G._references.Main.config
+		local teamService = _G._engine:load("TeamService", "utils")
+		local monetization = _G._engine:load("Monetization", "utils")
+		local badgeService = _G._engine:load("BadgeService", "utils")
+		local gamePassWhitelist = _G._engine:load("GamePassWhitelist", "utils")
+		local maid = _G._engine:load("Maid").new()
+		local objectives = _G._engine:load("Objectives")
+		local ballUtil = _G._engine:load("Balls")
+		local kickOff = _G._engine:load("Kickoff")
+		local take = _G._engine:load("Take")
+		local ai = _G._engine:load("AI")
+		local lastKickOff = "home"
+		local debounce = {}
+		local users = {}
+		local systems = {
+			throwIn = require(script.throw),
+			out = require(script.out),
+			goal = require(script.goal),
+			shootout = require(script.shootout)
+		}
+
+		--[[  Touch Events  ]]---------------------------------------------------------------------
+
+		local function onTouched(part, hit)
+			if string.find(part.Name, "ThrowIn") and not table.find(debounce, part.Name) and not config.Penalties.Enabled.Value then
+				systems.throwIn._run(debounce, part, hit)
+			elseif not string.find(part.Name, "ThrowIn") and part.Parent.Name == "out" and not table.find(debounce, part.Name) and not config.Penalties.Enabled.Value then
+				systems.out._run(debounce, part, hit)
+			elseif not string.find(part.Name, "ThrowIn") and part.Parent.Name == "goal" and not table.find(debounce, part.Name) then
+				systems.goal._run(debounce, part, hit)
+			elseif not string.find(part.Name, "ThrowIn") and part.Name == "Grass" and not table.find(debounce, part.Name) and hit.Parent and hit.Parent:FindFirstChild("Humanoid") and _G._services.Players:GetPlayerFromCharacter(hit.Parent) and not config.Penalties.Enabled.Value then
+				local player = _G._services.Players:GetPlayerFromCharacter(hit.Parent)
+
+				if #users == 1 and player and users[1] and not _G._references.Main.config.MatchInProgress.Value and ((string.find(player.Team.Name, "Home") and string.find(users[1].Team.Name, "Away")) or (string.find(player.Team.Name, "Away") and string.find(users[1].Team.Name, "Home"))) then
+					maid:DoCleaning()
+
+					_G._references.Main.config.MatchInProgress.Value = true
+					_G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Applause"]["Applause 2"]:Play()
+
+					config.Countdown.Value = 0
+					config.Countdown:SetAttribute("enabled", false)
+					if math.random(1, 2) == 1 then
+						lastKickOff = "away"
+					end
+
+					local teams = {BrickColor.new("Storm blue"), BrickColor.new("Navy blue")}
+
+					if lastKickOff == "away" then
+						teams = {BrickColor.new("Crimson"), BrickColor.new("Maroon")}
+					end
+
+					local takeSession = take.new(teams, "Kick Off")
+					_G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Applause"]["Applause 1"]:Play()
+
+					task.wait(6)
+
+					local taker = takeSession:getTaker()
+					takeSession:clear()
+
+					_G._references.Main.config.NoTimer.Value = false
+					_G._references.Main.config.NoBall.Value = false
+					_G._references.Main.config.VoteFix.Value = false
+					_G._references.Main.config.Timer.Enabled.Value = true
+					_G._references.Main.config.TimerSpeed.Value = 1
+					_G._references.Main.config.Timer.AddedTime.Value = math.random(2, 8)
+					_G._references.Main.sounds.CammySounds.Atmosphere.Referee["Whistle"]:Play()
+					table.clear(users)
+
+					if workspace.game.referee.rigs:FindFirstChild("main") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+						end)
+					end
+
+					if taker then
+						kickOff.new(taker, lastKickOff)
+					else
+						if _G._references.Main.config.AutoRall.Value then
+							for _,v in next, workspace.game.balls.spawns:GetChildren() do
+								if v then
+									v:Destroy()
+								end
+							end
+						end
+
+						local spawner = Instance.new("CFrameValue")
+						spawner.Name = "RF"
+						spawner.Value = CFrame.new(_G._references.Main.admin.positions.LBALL.Position)
+						spawner.Parent = workspace.game.balls.spawns
+
+						_G._references.Main.config.TimerSpeed.Value = 9
+
+						for _,v in next, _G._references.Main.config.Override:GetChildren() do
+							if v and v.Name == "DisableFouls" then
+								v:Destroy()
+							end
+						end
+					end
+				elseif #users == 0 and not _G._references.Main.config.MatchInProgress.Value then
+					table.insert(users, player)
+					_G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Applause"]["Applause 1"]:Play()
+					_G._references.RemoteEvent:FireClient(player, "notification", "WAIT FOR MORE PLAYERS")
+
+					maid["_playerRemoving"] = _G._services.Players.PlayerRemoving:Connect(function(plr)
+						if plr == player then
+							table.clear(users)
+							maid:DoCleaning()
+						end
+					end)
+				end
+
+				table.insert(debounce, part.Name)
+				task.wait(1.5)
+				table.remove(debounce, table.find(debounce, part.Name))
+			end
+		end
+
+		for _, part in next, system:GetDescendants() do
+			if part and part:IsA("BasePart") then
+				part.Touched:Connect(function(hit)
+					if hit and hit.Parent and ballUtil.IsBall(hit) and config.AutoSystem.Value and not config.Delay:FindFirstChildWhichIsA("ValueBase") then
+						onTouched(part, hit)
+					end
+				end)
+
+				part.TouchEnded:Connect(function(hit)
+					if hit and hit.Parent and ballUtil.IsBall(hit) and config.AutoSystem.Value and not config.Delay:FindFirstChildWhichIsA("ValueBase") then
+						onTouched(part, hit)
+					end
+				end)
+			end
+		end
+
+		workspace.pitch.main.Grass.Touched:Connect(function(hit)
+			if hit and hit.Parent and hit.Parent:FindFirstChild("Humanoid") and config.AutoSystem.Value then
+				onTouched(workspace.pitch.main.Grass, hit)
+			elseif hit and hit.Parent and hit.Name == "RF" and config.NoBall.Value and hit:FindFirstChild("properties") and hit.properties:FindFirstChild("spawner") and hit.properties.spawner.Value then
+				hit.properties.spawner.Value:Destroy()
+			end
+		end)
+
+		workspace.pitch.main.Grass.TouchEnded:Connect(function(hit)
+			if hit and hit.Parent and hit.Parent:FindFirstChild("Humanoid") and config.AutoSystem.Value then
+				onTouched(workspace.pitch.main.Grass, hit)
+			elseif hit and hit.Parent and hit.Name == "RF" and config.NoBall.Value and hit:FindFirstChild("properties") and hit.properties:FindFirstChild("spawner") and hit.properties.spawner.Value then
+				hit.properties.spawner.Value:Destroy()
+			end
+		end)
+
+		--[[  Bindable Events  ]]---------------------------------------------------------------------
+
+		local function isLastAttack()
+			if workspace.game.balls.server:FindFirstChild("RF") and workspace.game.balls.server.RF:GetAttribute("lastTouch") and workspace.game.balls.server.RF:GetAttribute("lastTouch") ~= 0 then
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and player.UserId == workspace.game.balls.server.RF:GetAttribute("lastTouch") then
+						if (string.find(player.Team.Name, "Home") and workspace.game.balls.server.RF.Position.Z > 0) or (string.find(player.Team.Name, "Away") and workspace.game.balls.server.RF.Position.Z < 0) then
+							return true
+						end
+					end
+				end
+			end
+
+			return false
+		end
+
+		local function autoKickOff()
+			if lastKickOff == "home" then
+				lastKickOff = "away"
+			else
+				lastKickOff = "home"
+			end
+
+			local teams = {BrickColor.new("Storm blue"), BrickColor.new("Navy blue")}
+
+			if lastKickOff == "away" then
+				teams = {BrickColor.new("Crimson"), BrickColor.new("Maroon")}
+			end
+
+			local takeSession = take.new(teams, "Kick Off")
+			_G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Applause"]["Applause 1"]:Play()
+
+			task.wait(6)
+
+			local taker = takeSession:getTaker()
+			takeSession:clear()
+
+			_G._references.Main.config.VoteFix.Value = true
+			_G._references.Main.config.NoBall.Value = false
+			_G._references.Main.config.NoTimer.Value = false
+			_G._references.Main.sounds.CammySounds.Atmosphere.Referee["Whistle"]:Play()
+
+			if not _G._references.Main.config.GoldenGoal.Value then
+				_G._references.Main.config.Timer.Enabled.Value = true
+				_G._references.Main.config.TimerSpeed.Value = 1
+				_G._references.Main.config.Timer.AddedTime.Value = math.random(2, 8)
+			end
+
+			if workspace.game.referee.rigs:FindFirstChild("main") then
+				task.spawn(function()
+					ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+				end)
+			end
+
+			if taker then
+				kickOff.new(taker, lastKickOff)
+			else
+				if _G._references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+
+				for _,v in next, _G._references.Main.config.Override:GetChildren() do
+					if v and v.Name == "DisableFouls" then
+						v:Destroy()
+					end
+				end
+
+				local spawner = Instance.new("CFrameValue")
+				spawner.Name = "RF"
+				spawner.Value = CFrame.new(_G._references.Main.admin.positions.LBALL.Position)
+				spawner.Parent = workspace.game.balls.spawns
+
+				_G._references.Main.config.TimerSpeed.Value = 9
+			end
+		end
+
+		local function autoWin(side)
+			local region = teamService:getRegionFromTeam(side)
+			local cheerSoundArray = _G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Goal Cheers"][region]:GetChildren()
+			local cheerSoundInstance = cheerSoundArray[math.random(1, #cheerSoundArray)]
+			cheerSoundInstance:Play()
+			_G._references.RemoteEvent:FireAllClients("message", string.upper(_G._references.Main.config.Stats[side].Team.Value) .. " WON!")
+
+			for _, player in next, _G._services.Players:GetPlayers() do
+				if player and player.Team and string.find(player.Team.Name, side) and game.PrivateServerOwnerId == 0 then
+					local profile = _G._references.Profiles:WaitForChild(tostring(player.UserId), 100)
+					local doubleXP = monetization.userOwnsPass(player, monetization.gamePasses["2x XP"].gamePassId)
+					local doublePoints = monetization.userOwnsPass(player, monetization.gamePasses["2x Points"].gamePassId)
+					local playerObjectives = _G._references.Main.objectives:WaitForChild(tostring(player.UserId), 100)
+
+					profile.stats.Wins.Value += 1
+
+					if playerObjectives and playerObjectives:FindFirstChild("Win a match") and not playerObjectives["Win a match"].Value then
+						local objective = objectives._objectives["Win a match"]
+						playerObjectives["Win a match"].Value = true
+
+						if doubleXP or player:GetAttribute("hasRFPremium") then
+							profile.level.XP.Value += objective._rewards.xp * 2
+							_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp * 2)), "success")
+						else
+							profile.level.XP.Value += objective._rewards.xp 
+							_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s XP REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.xp)), "success")
+						end
+
+						if doublePoints or player:GetAttribute("hasRFPremium") then
+							profile.stats.Cash.Value += objective._rewards.points * 2
+							_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points * 2)), "success")
+						else
+							profile.stats.Cash.Value += objective._rewards.points 
+							_G._references.RemoteEvent:FireClient(player, "notification", string.format("%s RF POINTS REWARDED FOR COMPLETING A DAILY OBJECTIVE", tostring(objective._rewards.points)), "success")
+						end
+					end
+
+					if doubleXP or player:GetAttribute("hasRFPremium") then
+						profile.level.XP.Value += 90
+						_G._references.RemoteEvent:FireClient(player, "notification", "90 XP REWARDED FOR WINNING A MATCH", "success")
+					else
+						profile.level.XP.Value += 45
+						_G._references.RemoteEvent:FireClient(player, "notification", "45 XP REWARDED FOR WINNING A MATCH", "success")
+					end
+
+					if doublePoints or player:GetAttribute("hasRFPremium") then
+						profile.stats.Cash.Value += 300
+						_G._references.RemoteEvent:FireClient(player, "notification", "300 RF POINTS REWARDED FOR WINNING A MATCH", "success")
+					else
+						profile.stats.Cash.Value += 150
+						_G._references.RemoteEvent:FireClient(player, "notification", "150 RF POINTS REWARDED FOR WINNING A MATCH", "success")
+					end
+
+					if player:GetAttribute("hasRobloxPremium") or player:GetAttribute("hasRFPremium") then
+						profile.stats.Cash.Value += 100
+						profile.level.XP.Value += 15
+						_G._references.RemoteEvent:FireClient(player, "notification", "100 RF POINTS PREMIUM BONUS", "success")
+						_G._references.RemoteEvent:FireClient(player, "notification", "12 XP PREMIUM BONUS", "success")
+					end
+				end
+			end
+
+			task.spawn(function()
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and game.PrivateServerOwnerId == 0 then
+						local profile = _G._references.Profiles:WaitForChild(tostring(player.UserId), 100)
+						if profile then
+							profile.stats.Matches.Value += 1
+						end
+					end
+				end
+			end)
+
+			task.wait(15)
+
+			for _, reference in next, {"Home", "Away"} do
+				for _, value in next, _G._references.Main.config.Stats[reference]:GetChildren() do
+					if value and value:IsA("IntValue") then
+						value.Value = value.Name == "Possession" and 50 or 0
+					elseif value and value.Name == "Team" then
+						value.Value = string.upper(reference)
+					elseif value and value.Name == "Kit Type" then
+						value.Value = "Home"
+					end
+				end
+
+				for _, value in next, _G._references.Main.config.Penalties[reference]:GetChildren() do
+					if value and value:IsA("StringValue") then
+						value.Value = "N"
+					end
+				end
+			end
+
+			for _, folder in next, _G._references.Main.kits["RF Custom"]:GetChildren() do
+				if folder and folder:FindFirstChild("Custom") then
+					folder:Destroy()
+				end
+			end
+
+			_G._references.Main.config.Delay:ClearAllChildren()
+			_G._references.Main.config.Override:ClearAllChildren()
+			_G._references.Main.config["Set Pieces"]:ClearAllChildren()
+
+			_G._references.Main.cards.warning:ClearAllChildren()
+			_G._references.Main.cards.yellow:ClearAllChildren()
+			_G._references.Main.cards.red:ClearAllChildren()
+
+			config.Scorers.Home:ClearAllChildren()
+			config.Scorers.Away:ClearAllChildren()
+
+			_G._references.Main.captains:ClearAllChildren()
+			_G._references.Main.config.VoteFix.Value = false
+			_G._references.Main.config.GoldenGoal.Value = false
+			_G._references.Main.config.MatchInProgress.Value = false
+			_G._references.Main.config.Thunder.Value = false
+			_G._references.Main.config.Penalties.Enabled.Value = false
+			_G._references.Main.config.NoBall.Value = true
+			_G._references.Main.config.NoTimer.Value = true
+
+			_G._references.Main.config.Ball.Value = "Adidas RF Pro 23/24"
+			_G._references.Main.config.Scoreboard.Value = "RF"
+			_G._references.Main.config.Weather.Value = "Clear"
+			_G._references.Main.config.Intensity.Value = "Moderate"
+			_G._references.Main.config.ExtraTime.Value = "Extra Time"
+
+			_G._references.Main.config.Timer.Enabled.Value = false
+			_G._references.Main.config.Timer.Minutes.Value = 0
+			_G._references.Main.config.Timer.Seconds.Value = 0
+
+			_G._references.Main.config.Timer.Added.Minutes.Value = 0
+			_G._references.Main.config.Timer.Added.Seconds.Value = 0
+			_G._references.Main.config.Timer.AddedTime.Value = 2
+
+			local disableFouls = Instance.new("BoolValue")
+			disableFouls.Name = "DisableFouls"
+			disableFouls.Value = true
+			disableFouls.Parent = _G._references.Main.config.Override
+
+		
+
+			task.wait(3)
+			table.clear(users)
+		end
+
+		script.signal.Event:Connect(function(signal, args)
+			if signal == "halfTime" or signal == "fullTime" or signal == "extraTime" then
+				local lastTick = tick()
+
+				while _G._references.Main.config.Override:FindFirstChild("Break") and tick() - lastTick < 30 do
+					task.wait(1)
+				end
+
+				while not workspace.game.balls.server:FindFirstChild("RF") and tick() - lastTick < 60 do
+					task.wait(1)
+				end
+
+				_G._references.Main.config.Break.Value = true
+
+				while workspace.game.balls.server:FindFirstChild("RF") and isLastAttack() do
+					task.wait(1)
+				end
+
+				local lastTick = tick()
+
+				while _G._references.Main.config.Delay:FindFirstChildWhichIsA("ValueBase") do
+					_G._references.Main.config.Delay:ClearAllChildren()
+
+					if tick() - lastTick >= 20 then
+						break
+					end
+
+					task.wait(1)
+				end
+
+				while _G._references.Main.config["Set Pieces"]:FindFirstChildWhichIsA("ValueBase") do
+					_G._references.Main.config["Set Pieces"]:ClearAllChildren()
+
+					if tick() - lastTick >= 20 then
+						break
+					end
+
+					task.wait(1)
+				end
+
+				if _G._references.Main.config.Override:FindFirstChild("Foul") then
+					_G._references.Main.config.Override.Foul:Destroy()
+				end
+
+				if _G._references.Main.config.Override:FindFirstChild("Offender") then
+					_G._references.Main.config.Override.Offender:Destroy()
+				end
+
+				_G._references.Main.config.Break.Value = false
+				_G._references.Main.config.VoteFix.Value = false
+				_G._references.Main.config.NoBall.Value = true
+				_G._references.Main.config.NoTimer.Value = true
+
+				local disableFouls = Instance.new("BoolValue")
+				disableFouls.Name = "DisableFouls"
+				disableFouls.Value = true
+				disableFouls.Parent = _G._references.Main.config.Override
+
+				if _G._references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+
+				_G._references.BindableEvent:Fire("clearSpace")
+				_G._references.Main.sounds.CammySounds.Atmosphere.Referee["Full Time"]:Play()
+
+				if workspace.game.referee.rigs:FindFirstChild("main") then
+					task.spawn(function()
+						ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+					end)
+				end
+
+				if signal == "halfTime" then
+					_G._references.RemoteEvent:FireAllClients("message", "HALF TIME")
+					task.wait(2)
+					_G._references.RemoteEvent:FireAllClients("scorers", "half time")
+					task.wait(3)
+					_G._references.RemoteEvent:FireAllClients("message", "PREPARE FOR THE SECOND HALF", 10)
+					task.wait(15)
+					autoKickOff()
+				elseif signal == "fullTime" then
+					_G._references.RemoteEvent:FireAllClients("message", "FULL TIME")
+					task.wait(5)
+					if _G._references.Main.config.Stats.Home.Score.Value == _G._references.Main.config.Stats.Away.Score.Value then
+						if _G._references.Main.config.Stats.Home.Score.Value == _G._references.Main.config.Stats.Away.Score.Value and config.ExtraTime.Value == "Extra Time" then
+							_G._references.RemoteEvent:FireAllClients("message", "EXTRA TIME")
+							task.wait(2)
+							_G._references.RemoteEvent:FireAllClients("scorers", "full time")
+							task.wait(3)
+							_G._references.RemoteEvent:FireAllClients("message", "PREPARE FOR EXTRA TIME", 10)
+							task.wait(15)
+							autoKickOff()
+						elseif _G._references.Main.config.Stats.Home.Score.Value == _G._references.Main.config.Stats.Away.Score.Value and config.ExtraTime.Value == "Penalties" then
+							_G._references.RemoteEvent:FireAllClients("message", "PENALTIES")
+							task.wait(2)
+							_G._references.RemoteEvent:FireAllClients("scorers", "full time")
+							task.wait(3)
+							_G._references.RemoteEvent:FireAllClients("message", "PREPARE FOR PENALTIES", 10)
+							task.wait(15)
+							_G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Applause"]["Applause 2"]:Play()
+							_G._references.Main.config.NoBall.Value = false
+							systems.shootout._run()
+						elseif _G._references.Main.config.Stats.Home.Score.Value == _G._references.Main.config.Stats.Away.Score.Value and config.ExtraTime.Value == "Golden Goal" then
+							_G._references.RemoteEvent:FireAllClients("message", "GOLDEN GOAL")
+							task.wait(2)
+							_G._references.RemoteEvent:FireAllClients("scorers", "full time")
+							task.wait(3)
+							_G._references.RemoteEvent:FireAllClients("message", "PREPARE FOR GOLDEN GOAL", 10)
+							task.wait(15)
+							_G._references.Main.config.GoldenGoal.Value = true
+							autoKickOff()
+						end
+					elseif _G._references.Main.config.Stats.Home.Score.Value > _G._references.Main.config.Stats.Away.Score.Value then
+						autoWin("Home")
+					elseif _G._references.Main.config.Stats.Home.Score.Value < _G._references.Main.config.Stats.Away.Score.Value then
+						autoWin("Away")
+					end
+				elseif signal == "extraTime" then
+					_G._references.RemoteEvent:FireAllClients("message", "FULL TIME")
+					task.wait(5)
+					if _G._references.Main.config.Stats.Home.Score.Value == _G._references.Main.config.Stats.Away.Score.Value then
+						_G._references.RemoteEvent:FireAllClients("message", "PENALTIES")
+						task.wait(2)
+						_G._references.RemoteEvent:FireAllClients("scorers", "full time")
+						task.wait(3)
+						_G._references.RemoteEvent:FireAllClients("message", "PREPARE FOR PENALTIES", 10)
+						task.wait(15)
+						_G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Applause"]["Applause 2"]:Play()
+						_G._references.Main.config.NoBall.Value = false
+						systems.shootout._run()
+					elseif _G._references.Main.config.Stats.Home.Score.Value > _G._references.Main.config.Stats.Away.Score.Value then
+						autoWin("Home")
+					elseif _G._references.Main.config.Stats.Home.Score.Value < _G._references.Main.config.Stats.Away.Score.Value then
+						autoWin("Away")
+					end
+				end
+			elseif signal == "autoWin" then
+				autoWin(args)
+			elseif signal == "kickOff" then
+				local teams = {BrickColor.new("Storm blue"), BrickColor.new("Navy blue")}
+
+				if args == "away" then
+					teams = {BrickColor.new("Crimson"), BrickColor.new("Maroon")}
+				end
+
+				local takeSession = take.new(teams, "Kick Off")
+				task.wait(6)
+
+				local taker = takeSession:getTaker()
+				takeSession:clear()
+
+				_G._references.Main.config.VoteFix.Value = true
+				_G._references.Main.config.TimerSpeed.Value = 1
+				_G._references.Main.sounds.CammySounds.Atmosphere.Referee["Whistle"]:Play()
+
+				if workspace.game.referee.rigs:FindFirstChild("main") then
+					task.spawn(function()
+						ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+					end)
+				end
+
+				if taker and taker.Parent then
+					kickOff.new(taker, lastKickOff)
+				else
+					if _G._references.Main.config.AutoRall.Value then
+						for _,v in next, workspace.game.balls.spawns:GetChildren() do
+							if v then
+								v:Destroy()
+							end
+						end
+					end
+
+					for _,v in next, _G._references.Main.config.Override:GetChildren() do
+						if v and v.Name == "DisableFouls" then
+							v:Destroy()
+						end
+					end
+
+					local spawner = Instance.new("CFrameValue")
+					spawner.Name = "RF"
+					spawner.Value = CFrame.new(_G._references.Main.admin.positions.LBALL.Position)
+					spawner.Parent = workspace.game.balls.spawns
+
+					_G._references.Main.config.TimerSpeed.Value = 9
+
+					for _,v in next, _G._references.Main.config.Override:GetChildren() do
+						if v and v.Name == "Break" then
+							v:Destroy()
+						end
+					end
+				end
+			elseif signal == "reset" then
+				table.clear(debounce)
+				_G._references.Main.config.Override:ClearAllChildren()
+				_G._references.Main.config.Delay:ClearAllChildren()
+				script.goal:ClearAllChildren()
+			end
+		end)
+	end,
+}
