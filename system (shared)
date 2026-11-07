@@ -1,0 +1,32 @@
+local config = {}
+
+function config:getLastTouch(hit)
+	local lastTouch = "home"
+
+	for _, player in next, _G._services.Players:GetPlayers() do
+		if player and player.UserId == hit:GetAttribute("lastTouch") and player.Team and string.find(string.lower(player.Team.Name), "away") then
+			lastTouch = "away"
+		end
+	end
+
+	return lastTouch
+end
+
+function config:spawnBall(position)
+	if _G._references.Main.admin.positions:FindFirstChild(string.upper(position)) then
+		if _G._references.Main.config.AutoRall.Value then
+			for _,v in next, workspace.game.balls.spawns:GetChildren() do
+				if v then
+					v:Destroy()
+				end
+			end
+		end
+		
+		local spawner = Instance.new("CFrameValue")
+		spawner.Name = "RF"
+		spawner.Value = _G._references.Main.admin.positions[string.upper(position)].CFrame
+		spawner.Parent = workspace.game.balls.spawns
+	end
+end
+
+return config
