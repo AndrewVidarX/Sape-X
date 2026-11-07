@@ -1,0 +1,458 @@
+return {
+	_run = function(debounce, part, hit)
+		local functions = require(script.Parent:WaitForChild("shared", 100))
+		local offside = _G._engine:load("Offside")
+		local take = _G._engine:load("Take")
+		local ai = _G._engine:load("AI")
+		local config = _G._references.Main.config
+		local systems = {
+			goalKick = _G._engine:load("Goalkick"),
+			corner = _G._engine:load("Corner")
+		}
+		
+		table.insert(debounce, part.Name)
+		_G._references.Main.sounds.CammySounds.Atmosphere.Referee.Whistle:Play()
+		
+		if workspace.game.referee.rigs:FindFirstChild("main") then
+			task.spawn(function()
+				ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+			end)
+		end
+
+		if hit and (_G._services.RunService:IsStudio() or hit:GetAttribute("lastTouch") ~= 0) then
+			local lastTouch = functions:getLastTouch(hit)
+			local position = hit.Position
+			
+			if config.Override:FindFirstChild("Foul") and not config.Override:FindFirstChild("Penalty") then
+				config.Override.Foul:Destroy()
+			end
+			
+			if config.Override:FindFirstChild("Penalty") then
+				task.delay(5, function()
+					if table.find(debounce, part.Name) then
+						table.remove(debounce, table.find(debounce, part.Name))
+					end
+				end)
+				return
+			end
+			
+			if config.Override:FindFirstChild("Goal") then
+				task.delay(5, function()
+					if table.find(debounce, part.Name) then
+						table.remove(debounce, table.find(debounce, part.Name))
+					end
+				end)
+				return
+			end
+			
+			if config.Delay:FindFirstChild("NoReact") and not script.Parent.goal:FindFirstChild("debounce") then
+				if _G._references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+				
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+				return
+			end
+			
+			if _G._replays then
+				_G._references.RemoteEvent:FireAllClients("endReplay", "miss")
+			end
+			
+			if _G._references.Main.config.Override:FindFirstChild("Goal") and _G._references.Main.config.Delay:FindFirstChild("NoReact") then
+				_G._references.Main.config.Override.Goal:Destroy()
+				_G._references.Main.config.Delay.NoReact:Destroy()
+				_G._services.ServerScriptService.modules.system.goal:ClearAllChildren()
+			end
+			
+			offside:clear()
+			
+			local disableFouls = Instance.new("BoolValue")
+			disableFouls.Name = "DisableFouls"
+			disableFouls.Value = true
+			disableFouls.Parent = config.Override
+			
+			local noReact = Instance.new("BoolValue")
+			noReact.Name = "NoReact"
+			noReact.Value = true
+			noReact.Parent = config.Delay
+			
+			local override = Instance.new("BoolValue")
+			override.Name = "Break"
+			override.Value = true
+			override.Parent = config.Override
+			
+			_G._references.Main.config.VoteFix.Value = false
+			config.TimerSpeed.Value = 1
+			
+			if _G._references.Main.config.Break.Value then
+				if _G._references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+				
+				_G._references.BindableEvent:Fire("clearSpace")
+				disableFouls:Destroy()
+				noReact:Destroy()
+				override:Destroy()
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+				return
+			end
+			
+			local function goalKick(side)
+				local player = nil
+				
+				if side == "home" and workspace.game.referee.rigs:FindFirstChild("assistant1") then
+					ai.referee:animation(workspace.game.referee.rigs.assistant1, "Goalkick")
+				elseif side == "away" and workspace.game.referee.rigs:FindFirstChild("assistant2") then
+					ai.referee:animation(workspace.game.referee.rigs.assistant2, "Goalkick")
+				end
+
+				_G._references.RemoteEvent:FireAllClients("message", "GOAL KICK")
+
+				for _, _plr in next, _G._services.Players:GetPlayers() do
+					if _plr and ((_plr.TeamColor and ((side == "home" and _plr.TeamColor == BrickColor.new("Navy blue")) or (side == "away" and _plr.TeamColor == BrickColor.new("Maroon")))) or _G._services.RunService:IsStudio()) then
+						local lastTick = tick()
+						
+						player = _plr
+						_G._references.RemoteEvent:FireClient(player, "shiftLock", false)
+						_G._references.RemoteEvent:FireClient(player, "forceDisable", true)
+
+						for _, reference in next, {"serverRagdollBinder", "getUpBinder"} do
+							while player and player.Character and player.Character:GetAttribute(reference) do
+								if tick() - lastTick >= 5 then
+									break
+								end
+								task.wait()
+							end
+						end
+					end
+				end
+				
+				for _, part in next, workspace.game.system.goal:GetChildren() do
+					if part and string.lower(part.Name) == side then
+						local distance = (hit.Position - part.Position).Magnitude
+
+						if distance <= 65 then
+							local missSoundArray = _G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Missed Shot"]:GetChildren()
+							local missSoundInstance = missSoundArray[math.random(1, #missSoundArray)]
+							missSoundInstance.Volume = 0
+							missSoundInstance:Play()
+							_G._services.TweenService:Create(missSoundInstance, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Volume = 2}):Play()
+						end
+					end
+				end
+				
+				task.wait(1)
+				
+				if _G._replays then
+					for _, part in next, workspace.game.system.goal:GetChildren() do
+						if part and string.lower(part.Name) == side then
+							local distance = (hit.Position - part.Position).Magnitude
+
+							if distance <= 65 then
+								local players = {}
+								local lastTick = tick()
+
+								for _, plr in next, _G._services.Players:GetPlayers() do
+									if plr and (plr.TeamColor == BrickColor.new("Storm blue") or plr.TeamColor == BrickColor.new("Navy blue") or plr.TeamColor == BrickColor.new("Crimson") or plr.TeamColor == BrickColor.new("Maroon")) then
+										table.insert(players, plr)
+									end
+								end
+
+								_G._references.RemoteEvent:FireAllClients("replay", "miss", side)
+
+								while #_G._references.Main.replay:GetChildren() < #players do
+									if tick() - lastTick >= 20 then
+										break
+									end
+									task.wait()
+								end
+
+								_G._references.Main.replay:ClearAllChildren()
+							end
+						end
+					end
+				end
+
+				task.wait(3)
+				
+				_G._references.Main.config.VoteFix.Value = true
+				noReact:Destroy()
+				
+				for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+					if v and v.Name == "NoReact" then
+						v:Destroy()
+					end
+				end
+
+				if player and player.Parent and string.find(string.lower(part.Name), "right") then
+					if side == "home" then
+						systems.goalKick.new(player, "hgkl")
+					else
+						systems.goalKick.new(player, "agkl")
+					end
+				elseif player and player.Parent and string.find(string.lower(part.Name), "left") then
+					if side == "home" then
+						systems.goalKick.new(player, "hgkr")
+					else
+						systems.goalKick.new(player, "agkr")
+					end
+				elseif not player and string.find(string.lower(part.Name), "right") then
+					if side == "home" then
+						functions:spawnBall("hgkl")
+					else
+						functions:spawnBall("agkl")
+					end
+					
+					override:Destroy()
+					disableFouls:Destroy()
+					config.TimerSpeed.Value = 9
+				elseif not player and string.find(string.lower(part.Name), "left") then
+					if side == "home" then
+						functions:spawnBall("hgkr")
+					else
+						functions:spawnBall("agkr")
+					end
+					
+					override:Destroy()
+					disableFouls:Destroy()
+					config.TimerSpeed.Value = 9
+				end
+
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+			end
+			
+			local function corner(side)
+				local player = nil
+				local teams = {BrickColor.new("Crimson"), BrickColor.new("Maroon")}
+				
+				if side == "home" and workspace.game.referee.rigs:FindFirstChild("assistant1") then
+					ai.referee:animation(workspace.game.referee.rigs.assistant1, "Corner")
+				elseif side == "away" and workspace.game.referee.rigs:FindFirstChild("assistant2") then
+					ai.referee:animation(workspace.game.referee.rigs.assistant2, "Corner")
+				end
+				
+				if side == "away" then
+					teams = {BrickColor.new("Storm blue"), BrickColor.new("Navy blue")}
+				end
+
+				if _G._services.RunService:IsStudio() then
+					teams = {BrickColor.new("Institutional white")}
+				end
+
+				local takeSession = take.new(teams, "Corner")
+				_G._references.RemoteEvent:FireAllClients("message", "CORNER")
+				
+				for _, part in next, workspace.game.system.goal:GetChildren() do
+					if part and string.lower(part.Name) == side then
+						local distance = (hit.Position - part.Position).Magnitude
+
+						if distance <= 65 then
+							local missSoundArray = _G._references.Main.sounds.CammySounds.Atmosphere.Ambience["Missed Shot"]:GetChildren()
+							local missSoundInstance = missSoundArray[math.random(1, #missSoundArray)]
+							missSoundInstance.Volume = 0
+							missSoundInstance:Play()
+							_G._services.TweenService:Create(missSoundInstance, TweenInfo.new(0.15, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {Volume = 2}):Play()
+						end
+					end
+				end
+				
+				if side == "home" then
+					_G._references.Main.config.Stats.Home.Corners.Value += 1
+				elseif side == "away" then
+					_G._references.Main.config.Stats.Away.Corners.Value += 1
+				end
+				
+				task.wait(1)
+
+				if _G._replays then
+					for _, part in next, workspace.game.system.goal:GetChildren() do
+						if part and string.lower(part.Name) == side then
+							local distance = (hit.Position - part.Position).Magnitude
+
+							if distance <= 65 then
+								local distance = (hit.Position - part.Position).Magnitude
+
+								if distance <= 65 then
+									local players = {}
+									local lastTick = tick()
+
+									for _, plr in next, _G._services.Players:GetPlayers() do
+										if plr and (plr.TeamColor == BrickColor.new("Storm blue") or plr.TeamColor == BrickColor.new("Navy blue") or plr.TeamColor == BrickColor.new("Crimson") or plr.TeamColor == BrickColor.new("Maroon")) then
+											table.insert(players, plr)
+										end
+									end
+
+									_G._references.RemoteEvent:FireAllClients("replay", "miss", side)
+
+									while #_G._references.Main.replay:GetChildren() < #players do
+										if tick() - lastTick >= 20 then
+											break
+										end
+										task.wait()
+									end
+
+									_G._references.Main.replay:ClearAllChildren()
+								end
+							end
+						end
+					end
+				end
+
+				task.wait(3)
+
+				for _, _plr in next, _G._services.Players:GetPlayers() do
+					if _plr and _plr.TeamColor and table.find(teams, _plr.TeamColor) then
+						local lastTick = tick()
+						
+						_G._references.RemoteEvent:FireClient(_plr, "shiftLock", false)
+						_G._references.RemoteEvent:FireClient(_plr, "forceDisable", true)
+
+						for _, reference in next, {"serverRagdollBinder", "getUpBinder"} do
+							while _plr and _plr.Character and _plr.Character:GetAttribute(reference) do
+								if tick() - lastTick >= 5 then
+									break
+								end
+								task.wait()
+							end
+						end
+					end
+				end
+
+				if _G._references.Main.config.AutoRall.Value then
+					for _,v in next, workspace.game.balls.spawns:GetChildren() do
+						if v then
+							v:Destroy()
+						end
+					end
+				end
+				
+				_G._references.BindableEvent:Fire("clearSpace")
+
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+				
+				noReact:Destroy()
+				task.wait(4)
+				player = takeSession:getTaker()
+				takeSession:clear()
+				
+				for _,v in next, _G._references.Main.config.Delay:GetChildren() do
+					if v and v.Name == "NoReact" then
+						v:Destroy()
+					end
+				end
+				
+				_G._references.Main.config.VoteFix.Value = true
+
+				for _, _plr in next, _G._services.Players:GetPlayers() do
+					if _plr and _plr.TeamColor and table.find(teams, _plr.TeamColor) and ((player and _plr ~= player) or not player) then
+						_G._references.RemoteEvent:FireClient(_plr, "shiftLock", true)
+						_G._references.RemoteEvent:FireClient(_plr, "canSprint", true)
+						_G._references.RemoteEvent:FireClient(_plr, "globalOverride", false)
+					end
+				end
+
+				if player and player.Parent and string.find(string.lower(part.Name), "right") then
+					if side == "home" then
+						systems.corner.new(player, "hcr")
+					else
+						systems.corner.new(player, "acr")
+					end
+				elseif player and player.Parent and string.find(string.lower(part.Name), "left") then
+					if side == "home" then
+						systems.corner.new(player, "hcl")
+					else
+						systems.corner.new(player, "acl")
+					end
+				elseif not player and string.find(string.lower(part.Name), "right") then
+					if side == "home" then
+						functions:spawnBall("hcr")
+					else
+						functions:spawnBall("acr")
+					end
+					
+					override:Destroy()
+					disableFouls:Destroy()
+					config.TimerSpeed.Value = 9
+				elseif not player and string.find(string.lower(part.Name), "left") then
+					if side == "home" then
+						functions:spawnBall("hcl")
+					else
+						functions:spawnBall("acl")
+					end
+					
+					override:Destroy()
+					disableFouls:Destroy()
+					config.TimerSpeed.Value = 9
+				end
+
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+			end
+
+			if _G._services.RunService:IsStudio() or (string.find(string.lower(part.Name), "home") and lastTouch == "away") then
+				goalKick("home")
+			elseif string.find(string.lower(part.Name), "home") and lastTouch == "home" then
+				corner("home")
+			elseif string.find(string.lower(part.Name), "away") and lastTouch == "home" then
+				goalKick("away")
+			elseif string.find(string.lower(part.Name), "away") and lastTouch == "away" then
+				corner("away")
+			else
+				if hit and string.lower(part.Name) == "home" then
+					hit.CFrame = CFrame.new(_G._references.Main.admin.positions.HGK.Position)
+					hit.AssemblyLinearVelocity = Vector3.new()
+					hit.AssemblyAngularVelocity = Vector3.new()
+				elseif hit and string.lower(part.Name) == "away" then
+					hit.CFrame = CFrame.new(_G._references.Main.admin.positions.AGK.Position)
+					hit.AssemblyLinearVelocity = Vector3.new()
+					hit.AssemblyAngularVelocity = Vector3.new()
+				end
+				
+				disableFouls:Destroy()
+				override:Destroy()
+				_G._references.Main.config.VoteFix.Value = true
+				
+				if table.find(debounce, part.Name) then
+					table.remove(debounce, table.find(debounce, part.Name))
+				end
+			end
+		else
+			if hit and string.lower(part.Name) == "home" then
+				hit.CFrame = CFrame.new(_G._references.Main.admin.positions.HGK.Position)
+				hit.AssemblyLinearVelocity = Vector3.new()
+				hit.AssemblyAngularVelocity = Vector3.new()
+			elseif hit and string.lower(part.Name) == "away" then
+				hit.CFrame = CFrame.new(_G._references.Main.admin.positions.AGK.Position)
+				hit.AssemblyLinearVelocity = Vector3.new()
+				hit.AssemblyAngularVelocity = Vector3.new()
+			end
+			
+			for _,v in next, _G._references.Main.config.Override:GetChildren() do
+				if v and v.Name == "Break" then
+					v:Destroy()
+				end
+			end
+			
+			if table.find(debounce, part.Name) then
+				table.remove(debounce, table.find(debounce, part.Name))
+			end
+		end
+	end,
+}
