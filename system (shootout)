@@ -1,0 +1,287 @@
+return {
+	_run = function()
+		local config = _G._references.Main.config
+		local system = _G._engine:load("Shootout")
+		local maid = _G._engine:load("Maid").new()
+		local ai = _G._engine:load("AI")
+		local folder = config.Penalties
+		local current = "Home"
+		local players = {
+			home = {},
+			away = {}
+		}
+		local takers = {
+			home = {},
+			away = {}
+		}
+		local indexes = {
+			home = 0,
+			away = 0
+		}
+		local stage = {
+			home = 0,
+			away = 0
+		}
+		
+		local function getTeamStats()
+			local teamStats = {
+				home = {
+					goals = 0,
+					misses = 0
+				},
+				away = {
+					goals = 0,
+					misses = 0
+				}
+			}
+			
+			for _, reference in next, {"Home", "Away"} do
+				if teamStats[string.lower(reference)] then
+					for _, value in next, folder[reference]:GetChildren() do
+						if value and value:IsA("StringValue") and value.Value == "G" then
+							teamStats[string.lower(reference)].goals += 1
+						elseif value and value:IsA("StringValue") and value.Value == "NG" then
+							teamStats[string.lower(reference)].misses += 1
+						end
+					end
+				end
+			end
+			
+			return teamStats
+		end
+		
+		local function endCycle(winner)
+			maid:DoCleaning()
+			folder.Enabled.Value = false
+			folder.Taken.Value = false
+			config.NoBall.Value = true
+			workspace.game.shootout.Collide.CanCollide = false
+			_G._references.RemoteEvent:FireAllClients("disableCollider")
+			
+			folder.Takers.Home:ClearAllChildren()
+			folder.Takers.Away:ClearAllChildren()
+			
+			_G._references.Main.sounds.CammySounds.Atmosphere.Referee["Full Time"]:Play()
+
+			if workspace.game.referee.rigs:FindFirstChild("main") then
+				task.spawn(function()
+					ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+				end)
+			end
+			
+			task.delay(2, function()
+				for _, reference in next, {"Home", "Away"} do
+					for _, value in next, folder[reference]:GetChildren() do
+						if value and value:IsA("StringValue") then
+							value.Value = "N"
+						end
+					end
+				end
+				script.Parent.signal:Fire("autoWin", winner)
+			end)
+		end
+		
+		local function cycle(side)
+			local reference = string.lower(side)
+			
+			current = side
+			folder.Taken.Value = false
+			
+			if #takers[reference] > 0 then
+				indexes[reference] += 1
+				stage[reference] += 1
+				
+				if stage[reference] >= 6 and reference == "home" then
+					stage[reference] = 5
+					stage["away"] = 4
+					
+					folder.Home["5"].Value = "N"
+					folder.Away["5"].Value = "N"
+				end
+				
+				if indexes[reference] > #takers[reference] then
+					indexes[reference] = 1
+				end
+				
+				local taker = takers[reference][indexes[reference]]
+				local exclude = {}
+				
+				for _, player in next, _G._services.Players:GetPlayers() do
+					if player and player.Team and player.Character and player.Character.PrimaryPart and ((reference == "home" and string.find(player.Team.Name, "Away")) or (reference == "away" and string.find(player.Team.Name, "Home"))) and string.find(player.Team.Name, "GK") then
+						for _, reference in next, {"serverRagdollBinder", "getUpBinder"} do
+							while player and player.Character and player.Character:GetAttribute(reference) do
+								task.wait()
+							end
+						end
+						
+						table.insert(exclude, player)
+						
+						local teleport = Instance.new("BoolValue", player)
+						teleport.Name = "Teleport"
+						teleport.Value = true
+						_G._services.Debris:AddItem(teleport, 3)
+						
+						_G._references.RemoteEvent:FireClient(player, "disableCollider")
+						player.Character:SetPrimaryPartCFrame(workspace.game.positions.homeGK.CFrame)
+					end
+				end
+				
+				script.Parent.goal:ClearAllChildren()
+				_G._references.RemoteEvent:FireAllClients("resetCollider", exclude)
+				
+				if taker and taker.Parent then
+					_G._references.Main.sounds.CammySounds.Atmosphere.Referee.Whistle:Play()
+					_G._references.RemoteEvent:FireClient(taker, "disableCollider")
+
+					if workspace.game.referee.rigs:FindFirstChild("main") then
+						task.spawn(function()
+							ai.referee:animation(workspace.game.referee.rigs.main, "Whistle")
+						end)
+					end
+					
+					task.spawn(function()
+						system.new(taker, reference)
+					end)
+				elseif reference == "home" then
+					cycle("Away")
+					return
+				elseif reference == "away" then
+					cycle("Home")
+					return
+				end
+				
+				while not folder.Taken.Value do
+					task.wait()
+				end
+				
+				while script.Parent.goal:FindFirstChild("debounce") do
+					task.wait()
+				end
+				
+				task.wait(8)
+				
+				if folder[current] and folder[current][tostring(stage[string.lower(current)])] and folder[current][tostring(stage[string.lower(current)])].Value == "N" then
+					folder[current][tostring(stage[string.lower(current)])].Value = "NG"
+				end
+				
+				task.wait(2)
+				
+				local teamStats = getTeamStats()
+				
+				if reference == "away" and stage.home == 5 and config.Stats.Home.Score.Value > config.Stats.Away.Score.Value then
+					endCycle("Home")
+				elseif reference == "away" and stage.away == 5 and config.Stats.Home.Score.Value < config.Stats.Away.Score.Value then
+					endCycle("Away")
+				elseif reference == "home" then
+					cycle("Away")
+				elseif reference == "away" then
+					cycle("Home")
+				end
+			elseif reference == "home" and stage.away >= 1 then
+				endCycle("Away")
+			elseif reference == "home" and stage.away < 1 then
+				cycle("Away")
+			elseif reference == "away" then
+				endCycle("Home")
+			end
+		end
+		
+		for _, player in next, _G._services.Players:GetPlayers() do
+			if player and player.Team and string.find(player.Team.Name, "Home") and not string.find(player.Team.Name, "GK") then
+				table.insert(players.home, player)
+			elseif player and player.Team and string.find(player.Team.Name, "Away") and not string.find(player.Team.Name, "GK") then
+				table.insert(players.away, player)
+			end
+		end
+		
+		for _, reference in next, {"home", "away"} do
+			if #players[reference] >= 1 then
+				for iteration = 1, #players[reference] do
+					local index = math.random(1, #players[reference])
+					local player = players[reference][index]
+
+					table.insert(takers[reference], player)
+					table.remove(players[reference], index)
+				end
+			end
+		end
+		
+		for _, player in next, _G._services.Players:GetPlayers() do
+			if player and player.Team and string.find(player.Team.Name, "Home") and string.find(player.Team.Name, "GK") then
+				table.insert(takers.home, player)
+			elseif player and player.Team and string.find(player.Team.Name, "Away") and string.find(player.Team.Name, "GK") then
+				table.insert(takers.away, player)
+			end
+		end
+		
+		for _, reference in next, {"Home", "Away"} do
+			for index, player in next, takers[string.lower(reference)] do
+				if player then
+					local localMaid = _G._engine:load("Maid").new()
+					local profile = _G._references.Profiles:WaitForChild(tostring(player.UserId), 100)
+
+					local value = Instance.new("IntValue")
+					value.Name = player.Name
+
+					if profile then
+						value.Value = tonumber(profile.stats.Number.Value)
+					end
+
+					value.Parent = folder.Takers[reference]
+					
+					localMaid["teamChanged"] = player:GetPropertyChangedSignal("Team"):Connect(function()
+						if player.Team and ((string.find(player.Team.Name, "Home") and reference == "Away") or (string.find(player.Team.Name, "Away") and reference == "Home")) then
+							localMaid:DoCleaning()
+							for index, array in next, takers do
+								if table.find(array, player) then
+									table.remove(array, table.find(array, player))
+								end
+							end
+						end
+					end)
+					
+					localMaid["playerRemoving"] = _G._services.Players.PlayerRemoving:Connect(function(plr)
+						if plr == player then
+							localMaid:DoCleaning()
+							for index, array in next, takers do
+								if table.find(array, player) then
+									table.remove(array, table.find(array, player))
+								end
+							end
+						end
+					end)
+				end
+			end
+		end
+		
+		_G._references.RemoteEvent:FireAllClients("penalties")
+		task.wait(12)
+		
+		maid["onEvent"] = script.Parent.signal.Event:Connect(function(signal, args)
+			if signal == "goal" then
+				if folder[current] and folder[current][tostring(stage[string.lower(current)])] then
+					folder[current][tostring(stage[string.lower(current)])].Value = "G"
+				end
+				if config.Stats[current] then
+					config.Stats[current].Score.Value += 1
+				end
+			end
+		end)
+		
+		maid["playerRemoving"] = _G._services.Players.PlayerRemoving:Connect(function(player)
+			for index, array in next, takers do
+				if table.find(array, player) then
+					table.remove(array, table.find(array, player))
+				end
+			end
+		end)
+		
+		workspace.game.shootout.Collide.CanCollide = true
+		config.NoBall.Value = false
+		folder.Enabled.Value = true
+		config.TimerSpeed.Value = 9
+		config.Stats.Home.Score.Value = 0
+		config.Stats.Away.Score.Value = 0
+		cycle("Home")
+	end,
+}
